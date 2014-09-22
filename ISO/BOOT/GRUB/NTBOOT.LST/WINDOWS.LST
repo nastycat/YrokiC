@@ -1,0 +1,81 @@
+﻿!BAT
+debug off
+clear
+goto :bat_start
+call Fn.0 0 0x8217 | set menu=
+%menu%
+
+title
+:bat_start
+setlocal
+::color 11 12 13 14
+set menu=(md)0x210+16
+echo > %menu%
+::write (md)0x210+16 write (md)0x220+1 !BAT\\necho -n -P:0000 $[0000] \\t\\t\\t\\t\\t\\t\\t\\t\\t\\t\\0\n
+::echo initscript (md)0x220+1 >> %menu%
+echo -e color normal=0x1F highlight=0x0A helptext=0x1E heading=0x00 standard=0x0F border=0x00 >> %menu%
+echo -e timeout 60\ndefault 0\nwrite 0x8274 0x2001 \> nul >> %menu%
+find --set-root --devices=h makeactive --status || call :ac_err
+find --devices=h call :add_sys () || echo -n
+echo title Возврат в главное меню \nВозврат в главное меню >> %menu%
+echo -e write 0x307ff8 1 \> nul >> %menu%
+echo -e configfile >> %menu%
+if exist nt_ver && configfile %menu%
+call :bt_err
+endlocal
+write 0x307ff8 1 > nul
+configfile
+exit 1
+
+:add_sys
+call :getver || exit
+echo title Запуск Microsoft Windows %sys_ver% на разделе %@root% \nЗапуск Microsoft Windows %sys_ver% на разделе %@root%. >> %menu%
+echo command %NTBOOT% %nt_ver%=%@root% >> %menu%
+exit
+
+:getver
+map --mem ()/windows/system32/version.dll (rd) || map --mem ()/winnt/system32/version.dll (rd) || exit 1
+cat --locate=\x50\0\x72\0\x6F\0\x64\0\x75\0\x63\0\x74\0\x56 --number=1 (rd)+1 > nul || goto :Unknown
+calc *0x82d0=*0x82d0+%?%+30 > nul
+calc *0x82d8=0x40 > nul
+call Fn.67 *0x82d0 0x60000 3
+cat (md)0x300+1,1 | set nt_ver=NT
+cat (md)0x300+1,3 | goto :_ || echo -n
+:Unknown
+set sys_ver=Unknown System
+set nt_ver=NT6
+exit
+:_5.0
+set sys_ver=2000
+exit
+:_5.1
+set sys_ver=XP
+exit
+:_5.2
+set sys_ver=2003
+exit
+:_6.1
+set sys_ver=7/2008R2
+exit
+:_6.2
+set sys_ver=8/2012
+exit
+:_6.3
+set sys_ver=8.1/2012R2
+exit
+
+:ac_err
+clear
+echo -e \n$[0104] Внимание! Активные разделы не найдены!\n
+call :Pause 3
+exit
+
+:bt_err
+clear
+echo -e \n$[0104] Операционные системы Microsoft Windows не найдены!\n
+call :Pause 3
+exit
+
+:Pause
+pause --wait=%1
+exit

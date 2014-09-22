@@ -1,0 +1,8 @@
+﻿!BAT
+%NTBOOT%.CMD/RUNARG || echo -n
+setlocal
+set *
+command (md)0x28100+28 || echo -n
+command %NTBOOT%.CMD/RUN %* || echo -n
+endlocal && set loadroot=%loadroot% && set loadfile=%loadfile% && set loadpath=%loadpath%
+exit

@@ -1,0 +1,12 @@
+!BAT
+if exist %~dp0DPMS.ISO && goto :dpms.iso
+()/BOOT/ADDONS/DPMS/DPMS.BAT %*
+exit
+
+:dpms.iso
+map  %~dp0DPMS.ISO (0xdf) || map --mem  %~dp0DPMS.ISO (0xdf)
+map --hook
+(0xdf)/DPMS.BAT %* || echo -n
+map --unmap=0xdf
+map --rehook
+exit

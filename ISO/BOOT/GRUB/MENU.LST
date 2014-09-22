@@ -1,0 +1,94 @@
+﻿clear
+timeout 10
+default 1
+call ()/BOOT/GRUB/NTBOOT.LST/SETTING.LST > nul
+if exist ()/BOOT/GRUB/ALL$BOOT || find --set-root --devices=chpu /BOOT/GRUB/ALL$BOOT
+if exist ()/SLIC.BIN && ()/SLIC ()/SLIC.BIN
+#splashimage ()/BOOT/GRUB/BG/FON.GZ
+root () > nul 
+#terminal console
+#command --set-path=()/BOOT/GRUB
+#debug 1
+
+title Сменить фон\nСменить фоновое изображение.
+command ()/BOOT/GRUB/BGAUTOCHANGE ()/BOOT/GRUB/BG/ > nul
+
+title Обзор дисков и запуск образов/файлов\nОбзор дисков и запуск поддерживаемых образов/файлов.
+command %NTBOOT%.CMD/RUNS --automenu-all
+
+title Запуск ISO из каталога %_iso% \nПоиск и запуск ISO из каталога %_iso% на любых дисках.\nПоиск по вложенным каталогам с уровнем %_subdir%.
+command %NTBOOT%.CMD/RUNS --automenu-all show.iso subdir=%_subdir% "%_iso%"
+
+title Запуск VHD/VHDX/WIM из каталога %_vhd% \nПоиск и запуск VHD/VHDX из каталога %_vhd% на любых дисках.\nПоиск по вложенным каталогам с уровнем %_subdir%.
+command %NTBOOT%.CMD/RUNS --automenu-all show.vhd.vhx.wim subdir=%_subdir% "%_vhd%"
+
+title Запуск IMA/IMG/GZ/LZMA из каталога %_img% \nПоиск и запуск IMA/IMG/GZ/LZMA/BIN из каталога %_img% на любых дисках.\nПоиск по вложенным каталогам с уровнем %_subdir%.
+command %NTBOOT%.CMD/RUNS --automenu-all show.ima.img.gz.lzma.bin subdir=%_subdir% "%_img%"
+
+title Сменить приоритетный диск \nСменить приоритетный диск.
+command %NTBOOT%.CMD/RUNS --swap-ext --end exit
+configfile
+
+title Загрузка с жесткого диска
+configfile %NTBOOT%.LST/HARD.LST
+
+title Загрузка ОС Windows\nПоиск установленных ОС Windows и их запуск.
+if not exist /BOOT/GRUB/BGAUTOCHANGE find --set-root --devices=chpu /BOOT/GRUB/BGAUTOCHANGE
+command BGAUTOCHANGE ()/BOOT/GRUB/BG/ > nul
+configfile %NTBOOT%.LST/WINDOWS.LST
+
+title Установка ОС Windows XP/2003, FIRADISK/DPMS\nУстановка ОС Windows XP/2003 из ISO образа, используется FIRADISK и драйверпак DPMS.\nПоиск и запуск ISO из каталога %_isoinst% с уровнем вложения %_subdir% на любых дисках.
+command %NTBOOT%.CMD/RUNS --swap-ext --end exit
+call set showpath=0
+call set slient=1
+command %NTBOOT%.CMD/RUNS --noload --autolist-all show.iso subdir=%_subdir% "%_isoinst%" --end exit
+command %NTBOOT%.CMD/RUNS --fira dpms:%NTBOOT%.IMG/DPMS.GZ iso=%loadroot%%loadfile%
+
+title 1 Установка ОС Windows XP/2003, FIRADISK/DPMS\nУстановка ОС Windows XP/2003 из ISO образа, используется FIRADISK и драйверпак DPMS.\nПоиск и запуск ISO из каталога %_isoinst% с уровнем вложения %_subdir% на любых дисках.
+command %NTBOOT%.CMD/RUNS --swap-ext --end exit
+command %NTBOOT%.CMD/RUNS --fira dpms:%NTBOOT%.IMG/DPMS.GZ iso="/мои дистрибутивы винды/8.1 x64/BOOT/IMGS/"
+
+title Установка ОС Windows XP/2003, WINVBLK/DPMS\nУстановка ОС Windows XP/2003 из ISO образа, используется WINVBLK и драйверпак DPMS.\nПоиск и запуск ISO из каталога %_isoinst% с уровнем вложения %_subdir% на любых дисках.
+command %NTBOOT%.CMD/RUNS --swap-ext --end exit
+set showpath=0
+set slient=1
+command %NTBOOT%.CMD/RUNS --noload --autolist-all show.iso subdir=%_subdir% "%_isoinst%" --end exit
+command %NTBOOT%.CMD/RUNS --wvbk dpms:%NTBOOT%.IMG/DPMS.GZ iso=%loadroot%%loadfile%
+
+title Install Windows 7/8/8.1
+command %NTBOOT%.CMD/RUNS --swap-ext --end exit
+set showpath=0
+set slient=1
+command %NTBOOT%.CMD/RUNS --noload --autolist-all show.iso subdir=%_subdir% "%_isoinst%" --end exit
+#dd if=%NTBOOT%.IMD/au.xml of=()/AutoUnattend.xml
+dd if=%NTBOOT%.IMD/spaces.txt of=%NTBOOT%.IMD/NameISO.cmd
+write %NTBOOT%.IMD/NameISO.cmd SET MYISO=\\%loadfile%\r\n
+command %NTBOOT%.CMD/RUN  %loadroot%%loadfile%
+
+title Windows Install with VBoot
+#debug off
+set MYISO=ru_7_ent.iso
+#dd if=()/grub/imdisk/au.xml of=()/AutoUnattend.xml
+#dd if=()/grub/imdisk/spaces.txt of=()/grub/imdisk/NameISO.cmd
+#write ()/grub/imdisk/NameISO.cmd SET MYISO=\\iso\\%MYISO%\r\n
+#find --set-root --ignore-floppies --ignore-cd /ISO/VBoot.iso
+map --mem ()/grub/vboot/VBoot.iso (0xfd)
+#map (hd0) (hd1)
+#map (hd1) (hd0)
+uuid ()
+map --hook
+write (0xfd)/vboot/grub/grub.cfg vboot cdrom=(UUID=%?_UUID%)/ISO/%MYISO% boot=cdrom\nboot\n
+kernel (0xfd)/vbootldr
+
+iftitle [find --set-root --devices=h /bootitbm && call set bootitbm=%@root^%] Загрузка BootIt BM из %bootitbm%\nЗагрузка BootIt BM из %bootitbm%
+	find --set-root --devices=h /bootitbm
+	call set bootitbm=%@root^%
+	if not "%bootitbm:~1,3%"=="hd0" map () (hd0) && map (hd0) () && map --rehook
+	echo Booting from PBR (hd0,%bootitbm:~5,1%) ...
+	chainloader (hd0,%bootitbm:~5,1%)+1
+
+title Перегрузить\nПерегрузить компьютер
+reboot
+
+title Выключить\nВыключить компьютер
+halt

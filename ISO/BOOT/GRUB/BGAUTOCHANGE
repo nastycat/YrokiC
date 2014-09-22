@@ -1,0 +1,93 @@
+!BAT by sratlf@wuyou 20130408
+::usage: call %~0 %~1
+::%path%=%~1
+
+checkrange 20130320:-1 read 0x8278 > nul || echo -e \n $[0147]GRUB4DOS is too old!$[0x07]\x20 && pause && exit
+
+:start
+setlocal
+pager off
+if "%~1"=="" exit
+rootnoverify %~d1 || echo %~d1 error. && exit
+set path=%~pnx1
+call :pathcheck
+if exist debug && debug %debug% &; echo -e input=%~1 \nroot=%@root% \npath=%path%
+set num_e=
+if not "%bmp_num%"=="" set num_old=%bmp_num%
+ls %path% | call :num_limit  || echo Directory %path% not found on device %@root%. && exit
+if exist debug echo -e name_old=%name_old% \nnum_e=%num_e%
+calc %num_e% > nul || echo Unknown error. && exit
+if "%num_e%"=="1" && ls %path% | set bmp_name= && goto :end
+:loop
+if "%err_num%"=="" set err_num=-1 ;; set /a err_num=%err_num% + 1 > nul ;; if %err_num%>=%num_e% && goto :roll_back
+call :num_compare
+if exist debug echo -e loop begin \nnum=%num% \nbmp_num=%bmp_num% \nerr_num=%err_num% \nnum_e=%num_e%
+set num_b=
+set bmp_name=
+ls %path% | call :name_get %num% || echo Unknown error.. && exit
+if "%bmp_name%"=="" && echo Unknown error... && exit
+:end
+if exist debug echo will load %path%%%bmp_name% && pause
+splashimage %path%%%bmp_name% || if not "%num_e%"=="1" && goto :loop
+endlocal && if not "%num_e%"=="1" set bmp_num=%num%
+if exist debug echo -e loop end \nfinal bmp_num=%bmp_num% && pause
+exit
+:roll_back
+echo Failed too many times...%err_num%...X_X
+if "%name_old%"=="" && pause && exit
+set err_num=
+set num=%bmp_num%
+set bmp_name=%name_old%
+set name_old=
+goto :end
+
+:num_limit
+if "%~1"=="" exit
+if "%num_e%"=="" set num_e=0
+set /a num_e=%num_e% + 1 > nul
+call Fn.15 "%num_e%" "%num_old%" || set name_old=%~1
+shift
+goto :num_limit
+
+:name_get
+if "%num_b%"=="" if not "%~1"=="%num%" && exit 1
+shift
+if "%~1"=="" exit
+if "%num_b%"=="" set num_b=0
+set /a num_b=%num_b% + 1 > nul
+if %num_b%==%num% || goto :name_get
+set num_b=
+set bmp_name=%~1
+exit
+
+:num_compare
+if not "%num%"=="" && set num_old=%num%
+set num=
+set num=%@random%
+call :num_calc || goto :num_compare
+set tmp=
+if "%bmp_num%"=="" && exit ;; if "%num_old%"=="" && exit
+if not %num%==%num_old% if not %num%==%bmp_num% || goto :num_compare
+exit
+:num_calc
+set tmp=
+call :num_get %num%
+set /a num=%tmp% > nul
+if exist debug echo -e num=%num% \nnum_e=%num_e%
+if %num%>=1 if %num%<=%num_e% exit
+if %num%>=1 if %num%<=9 && exit 1
+call :num_calc || exit 1
+exit
+:num_get
+if "%~1"=="" && exit
+set num=%~1
+if "%tmp%"=="" set tmp=0
+set tmp=%tmp% + %num:~,1%
+call :num_get %num:~1%
+exit
+
+:pathcheck
+call Fn.15 "%path%" "" || set path=/ ! call Fn.15 "%path:~,1%" "/" && set path=%path:~1% && goto :pathcheck
+call Fn.15 "%path%" "/" && call Fn.11 "%path:~-1%" "/" && set path=%path:~,-1% && goto :pathcheck
+call Fn.15 "%path%" "/" && call Fn.15 "%path%" "" && set path=%path%/ ! set path=/
+exit

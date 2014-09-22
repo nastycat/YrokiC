@@ -1,0 +1,155 @@
+﻿!BAT ::处理SRS，摘自hotdll的F6IMG，稍改
+::command RUNSRS "%srspath%"
+
+setlocal
+set srs_err=
+map --status=0 && call :unmap 0 || set srs_err=2.42 && goto :srs_end
+map --mem %NTBOOT%.IMG/EMPTY.IMG (0) || set srs_err=2.44 && goto :srs_end
+map --rehook
+::检测本机的SRSID是否符合标准,标准的ID截取前21位,否则使用完整ID搜索
+chkpci -srs | set HWID=
+if "%HWID%"=="" && set srs_err=1 && goto :srs_end
+if /i "%HWID:~0,7%"=="PCI\VEN" set SRSID=%HWID:~0,21% || set SRSID=%HWID%
+::参数指定的是文件
+cat --length=0 %~1 > nul && goto :img_file
+rootnoverify %~d1 && set /u srspath=%~pnx1
+::指定路径下寻找整包驱动文件(文件名F6IMG)
+call :f6img_map "%~1F6IMG.GZ" "%~1F6IMG.LZMA" "%~1F6IMG.IMG" "%~1F6IMG.IMG.GZ" "%~1F6IMG.IMG.LZMA" "%~1F6IMG.ISO" "%~1F6IMG-SRS.ISO" "%~1DPMS.LZMA" "%~1DPMS-SRS.GZ" "%~1SRSF6N.LZMA"  "%~1SRSF6N-SRS.LZMA"
+:start
+ls %srspath%%%SRSID:~8,4%/ > nul && set srspath=%srspath%%%SRSID:~8,4%/ && goto :srs_begin
+call :%SRSID:~8,4% || call :srs_img_map "%srspath%%%SRSID:~8,4%.GZ" "%srspath%%%SRSID:~8,4%.LZMA" "%srspath%%%SRSID:~8,4%.IMG" "%srspath%OTHER.GZ" "%srspath%OTHER.LZMA" "%srspath%OTHER.IMG"
+:srs_begin
+call Fn.15 "%srs_err%" "" && goto :srs_end
+set oemfile=txtsetup.oem
+call :find_oem () ()%srspath:~0,-1% || set srs_err=0 ! set srs_err=3.3
+if "%~x1"=="" && if /i "%@root%"=="(fd2)" && goto :srs_begin
+:srs_end
+map --unmap=2,4
+map --rehook
+endlocal && set srs_err=%srs_err% && set HWID=%HWID%
+exit
+
+:img_file
+if /i "%~n1"=="f6img" && call :f6img_map %~1 && goto :start
+call :srs_img_map %~1
+goto :srs_begin
+
+:unmap
+echo -e -n \n Trying to unmap fd%~1 ... 
+map --unmap=%~1
+map --rehook
+map --status=%~1 && echo failed && exit 1
+echo -e succeed
+exit
+
+:srs_img_map
+if "%~1"=="" && set srs_err=3.6 && exit
+if exist %~1 && rootnoverify %~d1 ! shift && goto :srs_img_map
+map --status=2 && call :unmap 2
+echo -e -n \n Attempt to map %@root%%%~1 to fd2 ...  && call :cursor && echo
+map %~pnx1 (2) > nul || map --mem %~pnx1 (2) || set srs_err=2.46 && exit 
+map --rehook
+ls (2)/ > nul || call :map_mem %~pnx1 (2) || set srs_err=2.46 && exit 
+call Fn.5 %cursor%
+map --status=2 && echo succeed ! echo failed && exit
+rootnoverify (2)
+ls / > nul && set srspath=/ ! set srs_err=2.48
+exit
+
+:f6img_map
+if "%~1"=="" && exit
+if exist %~1 && rootnoverify %~d1 ! shift && goto :f6img_map
+map --status=4 && call :unmap 4 || exit 1
+echo -e -n \n Attempt to map %~1 to fd4 ...  && call :cursor && echo
+map %~pnx1 (4) > nul || map --mem %~pnx1 (4)
+map --rehook
+ls (4)/ > nul || call :map_mem %~pnx1 (4)
+call Fn.5 %cursor%
+map --status=4 && echo succeed ! echo failed && exit 1
+rootnoverify (4)
+ls / > nul && set srspath=/ ! set srs_err=2.62
+exit
+
+:map_mem
+map --mem %~1 %~2 || exit 1
+map --rehook
+exit
+
+:1002
+:1022
+call :srs_img_map "%srspath%AMD.GZ" "%srspath%AMD.LZMA" "%srspath%AMD.IMG"
+exit
+:182F
+:1166
+call :srs_img_map "%srspath%BCM.GZ" "%srspath%BCM.LZMA" "%srspath%BCM.IMG"
+exit
+
+:cursor
+call Fn.4
+set /A cursor=%@retval% > nul
+set cursor=0x%cursor:~-2% %cursor:~,-2%
+exit
+
+::核心部分未更改
+::递归算法将所有包含txtsetup.oem并匹配ID
+:find_oem
+if "%2"=="" && root %1 > nul && exit
+cat --length=0 %~dp2%oemfile% > nul && cat --locatei=%SRSID:~-16% --number=1 %~dp2%oemfile% > nul && goto :copy_oem
+ls %~f2/ > nul && root %~f2 > nul && ls | call :find_oem %~dp2 ! if not /i "%~x2"==".GZ" if not /i "%~x2"==".LZMA" if not /i "%~x2"==".IMG" || call :srs_img_map %~f2 && ls (2)/ | call :find_oem %~dp2
+shift 2 && goto :find_oem
+::复制匹配oem文件下所有驱动文件到虚拟软驱A盘中。
+:copy_oem
+root %~dp2 > nul && ls | call :copy_fun (0)/ %@root% || exit
+calc *0x8290/0x200+1 > nul
+call :ass_oem %?% (md)0x20000+%@retval% (0)/%oemfile% 0x40000 0x4000000 && exit 1
+exit
+:copy_fun
+if "%3"=="" && root %2 && exit
+ls %~f3/ > nul && root %~f3 && fat mkdir %1%~nx3 > nul && ls | call :copy_fun %1%~nx3/ %~dp3 ! fat copy /o %~f3 %1 > nul || exit 1
+shift 3 && goto :copy_fun
+
+::处理txtsetup.oem文件
+:ass_oem
+call Fn.0 0 "\n" > %2
+cat %3 >> %2
+call Fn.0 0 "\n;\n" >> %2
+fat del %3 > nul
+calc *0x8290+0x200 > nul
+fat mkfile size=%@retval% %3 > nul
+cat --locate=\t --replace=\x20 %2 > nul
+:rem_oem
+cat --locate=\x20\x20\r --replace=\r\x20\x20 %2 > nul || cat --locate=\x20\r --replace=\r\x20 %2 > nul || cat --locate=\n\x20\x20 --replace=\x20\x20\n %2 > nul || cat --locate=\n\x20 --replace=\x20\n %2 > nul || call Fn.11 %5 "\n[" ! goto :rem_oem
+set /A p=%@retval% > nul && cat --locatei=\n[ --replace=\n] %2 > nul
+cat --locatei=\n]Disks] --replace=\n[ --number=1 %2 > nul
+cat --locatei=\n]Config --replace=\n[ %2 > nul
+cat --length=%1 --locate=\n] %2 > nul
+set /A s=%5+%?%+0x13 > nul
+call Fn.11 %s% "]"
+calc %@retval%-%s% > nul
+call Fn.0 %4 "%.*s" %@retval% %s%
+set /A s=%@retval% > nul
+if exist x64 && call Fn.11 %4 "64" || exit 1
+call Fn.0 0 "[Defaults]\r\nscsi = %s" %4 > %3
+call Fn.0 0x40040 ]Files.scsi.%s] %4
+call :dyn_oem %3 %@retval% %s% %4
+call Fn.0 0 "\r\n[HardwareIds.scsi.%s]\r\n" %4 >> %3
+cat --skip=%1 --locate=\x2c --number=1 %2 > nul
+cat --skip=%?% %2 | echo id = "%SRSID%" >> %3
+call Fn.0 0 ";by @wuyou" >> %3
+exit
+::动态生成txtsetup.oem文件实现免按F6键
+:dyn_oem
+call Fn.7 %p% 0x100 || exit
+call :chk_line %1 %4 %p% %2 %3 && set p=%@retval%
+goto :dyn_oem
+:chk_line
+call Fn.76 %2 %3 %5 1 || call Fn.0 0 "\r\n[Scsi]\r\n%s\r\n" %3 >> %1 && exit
+call Fn.0 0 "%.*s" 1 %3 | goto :chk_ || calc %loop% > nul || call Fn.0 0 "%s\r\n" %3 >> %1
+exit
+:chk_]
+call Fn.76 %3 0x40040 %4 1 || call Fn.0 0 "\r\n[Files.scsi.%s]\r\n" %2 >> %1 && set loop= ! set loop=1
+exit
+:chk_[
+call Fn.0 0 "\r\n%s\r\n" %3 >> %1 && set loop= && exit
+:chk_;
+exit

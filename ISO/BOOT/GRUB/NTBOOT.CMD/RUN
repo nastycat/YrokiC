@@ -1,0 +1,1650 @@
+﻿!BAT by sratlf 0619
+::language 值为cn或en  指定提示信息语言
+::usrpath  值应为路径  作为用户自定义路径  默认为/BOOT/IMGS/
+::listnote 将其值作为自动列表提示信息
+::filepre  仅对文件名中包含变量filepre指定字符串的文件进行 自动菜单/列表 操作
+::defaultc 将其值作为RUN命令行默认执行命令  即输入d将执行变量defaultc指定的命令  默认为空
+::dpmsver  值为chenall时使用chenall原版dpms脚本  否则默认使用pseudo修改后的dpms脚本
+
+::fd2hd    值为1时自动将ud启动后识别为fd的可见区仿真为hd
+::gzdetect 值为0时将不探测gzip压缩文件原始格式
+::updateud 值为1时在磁盘交换时将更新ud源位置
+::ignorerr 值为1时屏蔽错误提示后的选择(即按h键帮助，按enter继续)  改为在等待三秒后返回
+::srsmode  值为1时直接map指定的srs驱动映像
+::firamode 值为2时禁用一步安装系统
+::exchange 值为0时使用--fira|wvbk参数时将不调整fd顺序
+
+::showfile 值为0时自动菜单及自动列表不显示文件
+::showdir  值为0时自动菜单及自动列表不显示文件夹
+::showpath 值为1时自动菜单及自动列表显示文件详细路径
+
+::num_c    值为0xXX  指定自动列表数字编号颜色
+::file_c   值为0xXX  指定自动列表文件颜色
+::dir_c    值为0xXX  指定自动列表文件夹颜色
+
+::showback 值为1时自动列表加载背景图  注：仅在加载背景图的前提下有效
+
+::grub4ver 值为0时自动菜单隐藏grub4dos版本号
+::showinfo 值为0时取消自动菜单的帮助信息
+::showsize 值为0时自动菜单不显示文件体积
+
+::forcend  值为1时手动输入命令或自动列表状态下  加载fira以及srs驱动后会强制返回  (不建议使用)
+
+if "%debug%"=="" set debug=off ;; debug %debug% ;; if /i "%debug%"=="off" set debug=
+::检测grldr版本
+calc *0x8278 > nul ;; set g4dver=%@retval%
+if %g4dver%<=20140117 && set updateud=1 && set g4dver=
+::set g4dver= && if %g4dver%>=20130401 || echo -e \n $[0147]Current GRUB4DOS [%g4dver%] is too old! && pause && exit
+::terminal console
+::delmod -l %~nx0 > nul || insmod %~f0 > nul && set runs=%~nx0 && set runpath=%~p0
+set runs=%~nx0 &; set runf=%~f0S &; set runpath=%~p0 &; set NTBOOT=%~dp0 &; call :setn %NTBOOT:~,-1%
+cat --length=0 %runf% |; call :find "%runf%" &; set runf=%loadroot%%%loadfile% &; set NTBOOT=%loadroot%%%~p0 &; call :setn %NTBOOT:~,-1%
+call Fn.15 "%usrpath%" "" || set usrpath=/BOOT/IMGS/
+::检测语言
+call Fn.15 "%language%" "" || set language=en && read 0x1800820 > nul && set language=cn
+::检测进入RUN前的最后一次configfile加载的菜单
+::注:若grldr内置菜单未使用过configfile命令，则获取的结果为/menu.lst，不会为空
+call Fn.0 0 0x8217 | set tmp=
+set tmp= && if not "%tmp:~,4%"=="(md)" if not "%tmp:~,4%"=="(rd)" cat --length=0 %tmp% > nul && set backmenu=%tmp%
+call Fn.6
+call Fn.15 "%pager%" "" && pager %pager% ! pager off
+::若Boot_dev参数值和?_BOOT值相同，则直接处理参数
+call Fn.11 "%?_BOOT%" "%Boot_dev%" && goto :start
+set Boot_dev=%?_BOOT%
+call Fn.11 "%Boot_dev%" "hd0" && set hdd_boot=1 && goto :start
+call Fn.11 "%Boot_dev%" "pd" && set memset=1 && pxe keep && goto :start
+set fdd_boot=
+map --floppies=1 && calc *0x8280&0xff/2 > nul || set /a fdd_boot=*0x8280&0xff > nul
+read 0x82b8 > nul && calc *0x82b9&0xff/4 > nul || set /a fdd_boot=*0x82b9&0xff > nul
+call Fn.15 "%fdd_boot%" "" || map --floppies=0 ! call Fn.11 "%fd2hd%" "1" && map (%fdd_boot%)+1 (hd) || map (%fdd_boot%) (hd) || echo FDD:%fdd_boot%
+
+:start
+set nextloop= && call Fn.15 "%nextloop%" "1" && setlocal
+if "%debug%"=="" set debug=off ;; debug %debug%
+if /i "%runs%"=="%~1" && goto :next
+::以--开头的参数做参数处理，否则做文件处理
+call Fn.15 "%~1" "" && set m=%~1 ! goto :input
+call Fn.11 "%m:~,2%" "--" && goto :%m:~2% > nul || goto :%m:~2,3% > nul || goto :merror
+call Fn.15 "%~x1" "" && goto :%~x1 > nul || goto :merr
+goto :.bin
+
+:as.
+shift && goto :%~x1 || goto :merror
+:set
+endlocal && shift && echo -e %~2 | set %m:~6%=
+setlocal
+goto :next
+:e820cycles
+endlocal && shift && set e820=%~2
+setlocal
+goto :next
+:mem
+:top
+set /l m=%m%
+endlocal && set %m:~2%set=1
+setlocal
+goto :next
+:nomem
+:noboot
+:noswap
+:noload
+set /l m=%m%
+endlocal && set %m:~4%set=0
+setlocal
+goto :next
+:merr
+::无法识别的检测是否为文件夹
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" || goto :merror
+call Fn.11 "%filefnd%" "0" && goto :automenu_begin
+call Fn.11 "%autotype%" "list" && call Fn.11 "%loadset%" "0" && goto :boot
+:merror
+call Fn.15 "%language%" "cn" && echo -e \n Unsupported file or command: $[0147]%m%$[0x07]\x20 ! echo -e \n 不被支持的文件或命令: $[0147]%m%$[0x07]\x20
+call Fn.11 "%in_check%" "1" && exit ! goto :errchoise
+:ferr
+call Fn.15 "%language%" "cn" && echo -e \n File not found : $[0147]%findfile%$[0x07]\x20 ! echo -e \n 无法找到: $[0147]%findfile%$[0x07]\x20
+::选择
+:errchoise
+if "%back%"=="" || set back= && set filefnd= && set in_check= ! call Fn.11 "%in_check%" "1" && exit
+call Fn.11 "%ignorerr%" "1" &; call Fn.73 3 || goto :end
+call Fn.11 "%language%" "en" && echo -e \n $[0x07]Hit "$[0146]h$[0x07]" for $[0107]help info$[0x07], OR "$[0146]Enter$[0x07]" to $[0107]continue$[0x07], "$[0146]Tab$[0x07]" to $[0107]list all devices$[0x07].\n
+call Fn.11 "%language%" "cn" && echo -e \n $[0x07]按 "$[0146]h$[0x07]" 键获取$[0107]帮助信息$[0x07], 或者按 "$[0146]Enter$[0x07]" 键$[0107]继续$[0x07], 按 "$[0146]Tab$[0x07]" 键$[0107]列出所有设备$[0x07]。\n
+if /i "%slient%"=="1" && set endmode=2 && goto :end
+call Fn.19
+::按下小写h键后跳至帮助模块,按下小写i键后跳至直接输入模块,按下Tab键后列出所有设备
+call Fn.11 "%@retval%" "9064" && set filefnd= && set i= && goto :help ! call Fn.11 "%@retval%" "5993" && set filefnd= && set i= && goto :i ! call Fn.11 "%@retval%" "3849" && command %runf% --automenu-all ! goto :end
+
+:loadfont
+graphicsmode > nul || set language=en && goto :next
+if %@retval%>=316 set graphics=%@retval% || set graphics=-1 100:1000 100:1000 24:32
+graphicsmode %graphics% > nul || set language=en && goto :next
+set fontfile=
+cat --length=0 %@root%%%runpath%UNIFONT.HEX > nul && set fontfile=1 ! echo -n
+call Fn.15 "%fontfile%" "1" && set fontfile=%NTBOOT%.MOD/UNIFONT.HEX ! set fontfile=%@root%%%runpath%UNIFONT.HEX
+endlocal && set fontfile=%fontfile%
+set language=cn
+font && font %fontfile% || set language=en
+setlocal
+map --status=3 && map --unmap=3 && map --rehook
+goto :next
+
+::指定设备类型（默认为chpu）
+:dev
+shift
+echo -e %~1 | set devtmp=
+if not "%devtmp%"=="" if /i not "%devtmp%"=="all" || endlocal && set usrdev=chpuf && setlocal && goto :next
+set tmp=%devtmp%
+::逐项对比，以确定参数是否合法
+:dev_dt
+if "%tmp%"=="" && endlocal && set usrdev=%devtmp% && setlocal && goto :next
+call Fn.11 "chpufn" "%tmp:~,1%" || set usrdev= && set m=%~0=%devtmp% && goto :merror
+set tmp=%tmp:~1%
+goto :dev_dt
+
+::通用查找文件模块
+:find
+set filefnd=
+set dirfnd=
+set loadroot=
+set loadfile=
+set loadpath=
+set tmproot=
+set fileonly=
+set dironly=
+set loop=
+call Fn.11 "%~2" "fileonly" && set fileonly=1 && shift 2
+call Fn.11 "%~2" "dironly" && set dironly=1 && shift 2
+::若参数为数字，判断是否为自动列表指定的数字
+call Fn.11 "%Boot_dev%" "pd" && set fastmode=1
+call Fn.15 "%fastmode%" "" || set /a time=%@time:~,2% * 3600 + %@time:~3,2% * 60 + %@time:~6,2% + 1 > nul
+call Fn.11 "%autotype%" "list" && call Fn.15 "%md%" "" && checkrange 1:%i% calc %~1 > nul && calc %md% + %~1 > nul &; cat (md)%@retval%+1 | call :serach 
+call Fn.15 "%loop%" "1" &; call Fn.15 "%~1" "%~nx1" && call :serach %~f1 ! call :serach %usrpath%%%~1
+call Fn.15 "%fastmode%" "" |; calc %@time:~,2% * 3600 + %@time:~3,2% * 60 + %@time:~6,2% > nul &; if %@retval%<=%time% && set fastmode=0 ! set fastmode=1
+set tmproot=
+set fileonly=
+set dironly=
+set loop=
+call Fn.15 "%helpinfo%" "0" &; call Fn.15 "%loadfile%" "" || call Fn.15 "%loadpath%" "" || echo -e ! call Fn.11 "%language%" "en" && echo -e found ! echo -e 已找到
+::处理查找的返回值
+call Fn.15 "%~2" "exit" && call Fn.15 "%loadfile%" "" || call Fn.15 "%loadpath%" "" || exit 1 ! exit
+exit
+:serach
+call Fn.15 "%loop%" "1" && set findfile=%~pnx1 && rootnoverify %~d1 || exit
+call Fn.15 "%fdd_boot%" "" && call Fn.11 "%loop%" "1" && call Fn.11 "%filefnd%" "0" && call Fn.11 "%dirfnd%" "0" &; set loop= && set fdd_boot= && root (hd0) > nul || root (fd0) > nul || set loop=1
+call Fn.15 "%tmproot%" "%@root%" &; call Fn.15 "%helpinfo%" "0" &; call Fn.11 "%language%" "en" && echo -e -n \n $[0004]Searching $[0106]%@root%$[0102]%~pnx1$[0x07]... ! echo -e -n \n $[0004]正在搜索 $[0106]%@root%$[0102]%~pnx1$[0x07]...
+call Fn.15 "%loop%" "1" && set loop=1 ! exit
+set tmproot=%@root%
+::按文件查找
+call Fn.15 "%usrdev%" "" |; call Fn.15 "%fdd_boot%" "" && set usrdev=chpuf ! set usrdev=chpu
+call Fn.11 "%dironly%" "1" && goto :serach_dir
+cat (11)/EMPTY | root= > nul || echo -n
+root () > nul || echo -n
+cat --length=0 %~f1 > nul && root %~d1 > nul ! cat --length=0 %~pnx1 > nul && echo -n ! find --set-root --devices=%usrdev% cat --length=0 %~pnx1 > nul || find --set-root cat --length=0 %~pnx1 > nul || set filefnd=0
+call Fn.15 "%filefnd%" "0" && set loadfile=%~pnx1 && set loadroot=%@root% && goto :serach
+:serach_dir
+call Fn.11 "%fileonly%" "1" && goto :serach
+::按文件夹查找
+set path=%~pnx1
+call :path_check || call Fn.15 "%path:~-1%" "/" && set path=%path%/
+call Fn.11 "%dironly%" "1" && set findfile=%path%
+set oldroot=%~d1
+cat (11)/EMPTY | root= > nul || echo -n
+root () > nul || echo -n
+ls %oldroot%%%path% > nul && root %oldroot% > nul ! ls %path% > nul && echo -n ! find --set-root --devices=%usrdev% ls %path% > nul || find --set-root ls %path% > nul || set dirfnd=0
+call Fn.15 "%dirfnd%" "0" && set loadpath=%path% && set loadroot=%@root% && goto :serach
+exit
+
+::对path值进行检测，以确定是否合法，调用方式 call :path_check ;处理结束后path值为“认为”合法的结果
+:path_check
+::检测第一位是否为/
+call Fn.15 "%path%" "" || set path=/ ! call Fn.15 "%path:~,1%" "/" && set path=%path:~1% && goto :path_check
+::若path值最后一位是/，先去掉
+call Fn.15 "%path%" "/" && call Fn.11 "%path:~-1%" "/" && set path=%path:~,-1% && goto :path_check
+::重新补齐/
+call Fn.15 "%path%" "/" && call Fn.15 "%path%" "" && set path=%path%/ ! set path=/
+exit
+
+::本脚本结束模块
+:end
+if /i "%~2"=="exit" && set endmode=2
+call Fn.11 "%in_check%" "1" && exit 1
+call Fn.11 "%endmode%" "2" && endlocal && set loadroot=%loadroot% && set loadfile=%loadfile% && set loadpath=%loadpath% && exit
+call Fn.0 0 0x8217 | set tmp=
+set tmp= && call Fn.15 "%tmp%" "(rd)+1" && set filefnd= && set dirfnd= ! exit
+exit
+::检测内置菜单位置
+calc *0x307FFC-0x110000 > nul && set tmp=(md)4+8 ! set tmp=(md)0x880+0x200
+set tmp= && call :menucheck %backmenu% %menu% %tmp% || write 0x307ff8 1
+configfile %loadroot%%%loadfile%
+exit
+::检测菜单文件是否存在，因菜单文件可能为(md)或(rd)，因此特殊处理
+:menucheck
+call Fn.15 "%~1" "" || exit 1
+set loadroot=
+set loadfile=%~1
+command %NTBOOT%.CMD/EMPPATH loadfile="%~1" || echo -n
+call Fn.11 "%autotype%" "list" && call Fn.15 "%md%" "" && checkrange 1:%i% calc %~1 > nul && calc %md% + %~1 > nul &; cat (md)%@retval%+1 | set loadfile=
+call Fn.15 "%loadfile:~1,2%" "md" && call Fn.15 "%loadfile:~1,2%" "rd" && call :find "%loadfile%" fileonly exit ! cat --length=0 %loadfile% > nul || set loadfile=
+call Fn.15 "%loadfile%" "" && exit
+shift
+goto :menucheck
+
+::检测所有参数是否处理完，否则处理下个参数
+:next
+shift
+call Fn.15 "%~1" "" && set nextloop=1 && goto :start
+call Fn.11 "%in_check%" "1" && exit
+goto :end
+
+::帮助信息模块
+:help
+set morehelp=
+if /i "%~1"=="--help" && shift && if /i "%~2"=="more" && shift && set morehelp=1
+set c1=$[0x0A]
+set c7=$[0x07]
+set c3=$[0005]
+set c4=$[0x0E]
+set cf=$[0x0F]
+
+call Fn.11 "%morehelp%" "1" && pager on ! set c1=%c4% && set c4=%c1%
+
+call Fn.15 "%language%" "cn" && echo -e -n \n%runs% Usage,\x20 ! echo -e -n \n%runs% 命令格式，
+call Fn.11 "%morehelp%" "1" && echo -e ! call Fn.15 "%language%" "cn" && echo -e for detail please input %c3%--help more%c7%\x20 ! echo -e 详细说明请执行 %c3%--help more %c7%\x20
+
+echo -e \n%runs% %c7%/path/%c1%|%c7%file.iso%c1%|%c7%.img%c1%|%c7%.ima%c1%|%c7%.gz%c1%|%c7%.lzma%c1%|%c7%.0%c1%|%c7%.bin%c1%|%c7%.lst%c1%|%c7%.0pe%c1%|%c7%.txt%c1%|%c7%.ini%c1%|%c7%.log%c1%|%c7%.inf%c1%|%c7%.vhd%c1%|%c7%.vhdx%c1%|%c7%.wim
+call Fn.11 "%morehelp%" "1" && echo -e -n \n%c4%\t /path/ && if not "%language%"=="cn" echo -e %c7%  autolist for /path/ || echo -e %c7%  自动生成 /path/ 路径下文件菜单
+call Fn.11 "%morehelp%" "1" && echo -e -n %cf%\tfile%c4%.iso && if not "%language%"=="cn" echo -e %c7% cd-rom iso file || echo -e %c7% 光盘镜像文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %cf%\tfile%c4%.lst && if not "%language%"=="cn" echo -e %c7% menu file of grub4dos || echo -e %c7% grub4dos菜单文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %cf%\tfile%c4%.0pe && if not "%language%"=="cn" echo -e %c7% menu file for 0PE only || echo -e %c7% 0PE专用菜单文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\tfile %cf%/ file%c4%.bin %cf%/ file%c4%.0 && if not "%language%"=="cn" echo -e %c7% OS boot file || echo -e %c7% 系统引导文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %cf%\tfile%c4%.gz %cf%/ file%c4%.ima %cf%/ file%c4%.img %cf%/ file%c4%.lzma && if not "%language%"=="cn" echo -e %c7% floppy img file || echo -e %c7% 软盘镜像文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %cf%\tfile%c4%.txt %cf%/ file%c4%.ini %cf%/ file%c4%.log %cf%/ file%c4%.inf && if not "%language%"=="cn" echo -e %c7% text file || echo -e %c7% 文本文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %cf%\tfile%c4%.vhd %cf%/ file%c4%.vhdx && if not "%language%"=="cn" echo -e %c7% vhd file || echo -e %c7% VHD/VHDX文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %cf%\tfile%c4%.wim && if not "%language%"=="cn" echo -e %c7% wim file || echo -e %c7% WIM文件
+
+echo -e \n%runs% %c3%Options %cf%etc.
+call Fn.11 "%morehelp%" "1" && call Fn.15 "%language%" "en" && echo -e \n%c7%    固定参数后可跟其他参数或文件，参数设定后永久有效，即除非进入新的grub4dos环境或清除所有变量值，否则一直生效
+
+echo -e -n \n%c3%\t--top %cf%etc.  && call Fn.11 "%morehelp%" "1" || echo -e -n %c3%\t--nt %cf%/file.* && echo -e %c3%\t\t--set-%c4%var%c7%=%c4%value %cf%etc. ! call Fn.15 "%language%" "cn" && echo -e %c7% try to allocate memory at highest available address ! echo -e %c7% 将要仿真的镜像将镜像加载至高端内存后再进行仿真
+echo -e -n %c3%\t--mem %cf%etc.  && call Fn.11 "%morehelp%" "1" || echo -e -n %c3%\t--pe %cf%/file.* && echo -e %c3%\t\t--dev=%c7%[%c1%c%c7%,%c1%h%c7%,%c1%p%c7%,%c1%u%c7%,%c1%f%c7%,%c1%all%c7%] %cf%etc. ! call Fn.15 "%language%" "cn" && echo -e %c7% image file will map to memery ! echo -e %c7% 将要仿真的镜像先加载到内存后再进行仿真
+echo -e -n %c3%\t--nomem %cf%etc.   && call Fn.11 "%morehelp%" "1" || echo -e -n %c3%\t--as.%c4%XXX %cf%/file.* && echo -e %c3%\t--e820cycles=%c4%N %cf%etc. ! call Fn.15 "%language%" "cn" && echo -e %c7% image file will be directlly mapped ! echo -e %c7% 对将要仿真的镜像直接进行仿真，不加载到内存
+echo -e -n %c3%\t--noswap %cf%etc.  && call Fn.11 "%morehelp%" "1" || echo -e %c3%\t--end %c7%[%c1%exit%c7%] ! call Fn.15 "%language%" "cn" && echo -e %c7% hdd sequence will not be changed ! echo -e %c7% 不进行磁盘交换操作
+echo -e -n %c3%\t--%c7%[%c3%no%c7%]%c3%boot %cf%etc.  && call Fn.11 "%morehelp%" "1" || echo -e %c3%--ramos %cf%/hdd.* %c7%[%c4%/ldrfile%c7%] ! call Fn.15 "%language%" "cn" && echo -e %c7% the boot command will [not] be executed ! echo -e %c7% 将[不]执行 boot 命令
+echo -e -n %c3%\t--swap %cf%etc.      && call Fn.11 "%morehelp%" "1" || echo -e ! call Fn.15 "%language%" "cn" && echo -e %c7% hdd swap simple mode, swap hd1 to hd0 only ! echo -e %c7% 磁盘交换，简易模式，hd1与hd0互相交换
+echo -e -n %c3%\t--swap-all %cf%etc.  && call Fn.11 "%morehelp%" "1" || echo -e ! call Fn.15 "%language%" "cn" && echo -e %c7% hdd swap normal mode, swap hd0 to last hd, then hd1 to hd0 ! echo -e %c7% 磁盘交换，正常模式，hd0将交换至最后，hd1将为hd0
+echo -e -n %c3%\t--swap-ext %cf%etc.  && call Fn.11 "%morehelp%" "1" || echo -e ! call Fn.15 "%language%" "cn" && echo -e %c7% hdd swap advanced mode, can swap specified hdd to hd0 ! echo -e %c7% 磁盘交换，高级模式，可交换指定hd至hd0，可多次交换
+echo -e -n %c3%\t--loadfont %cf%etc.  && call Fn.11 "%morehelp%" "1" || echo -e ! call Fn.15 "%language%" "cn" && echo -e %c7% for zh-CN users, load Chinese Fonts ! echo -e %c7% 加载中文字库
+
+call Fn.11 "%morehelp%" "1" && echo -e -n \n%c3%\t--set-%c4%var%c7%=%c4%value %cf%etc.  && if not "%language%"=="cn" echo -e %c7% set the value of the variable var is value || echo -e %c7% 设置变量 var 的值为 value，永久有效
+call Fn.11 "%morehelp%" "1" && echo -e -n %c3%\t--dev=%c7%[%c1%c%c7%,%c1%h%c7%,%c1%p%c7%,%c1%u%c7%,%c1%f%c7%,%c1%all%c7%] %cf%etc.  && if not "%language%"=="cn" echo -e %c7% find the file on the specified device || echo -e %c7%在指定的设备上查找文件，默认为chpu，永久有效
+call Fn.11 "%morehelp%" "1" && echo -e -n %c3%\t--e820cycles=%c4%N %cf%etc.  && if not "%language%"=="cn" echo -e %c7% the same to the grub4dos map --e820cycles command || echo -e %c7% 作用同 grub4dos 中 map --e820cycles 参数，永久有效
+
+call Fn.11 "%morehelp%" "1" && echo -e -n \n%c3%\t--nt %cf%/file.*  && if not "%language%"=="cn" echo -e %c7% for UFD only, boot the local OS boot file || echo -e %c7% 仅适用于USB启动，启动指定的本地硬盘上的nt系统引导文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %c3%\t--pe %cf%/file.*  && if not "%language%"=="cn" echo -e %c7% boot the specified PE boot file || echo -e %c7% 启动指定的pe系统引导文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %c3%\t--as.%c4%XXX %cf%/file.*  && if not "%language%"=="cn" echo -e %c7% load the specified file as the specified file type || echo -e %c7% 将指定文件按指定文件类型加载
+call Fn.11 "%morehelp%" "1" && echo -e -n %c3%\t--ramos %cf%/hdd.* %c7%[%c4%/ldrfile%c7%]  && if not "%language%"=="cn" echo -e %c7% map the hdd image file to mem and boot it || echo -e %c7% 加载指定硬盘映像至内存启动，可指定引导文件
+
+call Fn.11 "%morehelp%" "1" && echo -e -n \n%c3%\t--end %c7%      && if not "%language%"=="cn" echo -e %c7% exit %runs% and reload grub4dos pre-set configfile || echo -e %c7% 退出%runs%命令行，并将重新加载GRUB4DOS内置菜单
+call Fn.11 "%morehelp%" "1" && echo -e -n %c3%\t--end exit%c7%  && if not "%language%"=="cn" echo -e %c7% just exit %runs% || echo -e %c7% 仅退出%runs%命令行
+
+echo -e \n%runs% %c7%[Options] %c3%--automenu%c7%[%c1%-all%c7%]%c4%|%c3%--autolist%c7%[%c1%-all%c7%] [%c1%--show%c4%|%c1%--not-show%cf%.XX1.XX2-.NNN%c7%] [%c1%subdir=%c4%N%c7%] [%cf%/path/%c7%]
+call Fn.11 "%morehelp%" "1" && echo -e -n \n%c4%\t--automenu && if not "%language%"=="cn" echo -e %c7%     automenu for the specified path || echo -e %c7%     自动生成指定目录下文件菜单
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\t--automenu-all && if not "%language%"=="cn" echo -e %c7% automenu for the all available devices || echo -e %c7% 生成生成所有可用设备菜单
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\t--autolist && if not "%language%"=="cn" echo -e %c7%     autolist for the specified path || echo -e %c7%     自动生成指定目录下文件菜单
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\t--autolist-all && if not "%language%"=="cn" echo -e %c7% autolist for the all available devices || echo -e %c7% 生成生成所有可用设备菜单
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\t--show.XX1.XX2-.NNN && if not "%language%"=="cn" echo -e %c7%     show the specifiled file type only, * for all || echo -e %c7%     只显示指定后缀的文件，为*时全部显示
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\t--not-show.XX1.XX2-.NNN && if not "%language%"=="cn" echo -e %c7% not show the specifiled file type || echo -e %c7% 不显示指定后缀的文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %c7%\t--automenu[-all]|--autolist[-all] %c4%[/path/] && if not "%language%"=="cn" echo -e %c7% specify the path || echo -e %c7% 指定目录
+call Fn.11 "%morehelp%" "1" && echo -e -n %c7%\t--automenu[-all]|--autolist[-all] %c4%subdir=N %c7%[/path/] && if not "%language%"=="cn" echo -e %c7% specify the deep leveal || echo -e %c7% 指定目录深度
+
+echo -e \n%runs% %c7%[Options] %c3%--fira%c4%|%c3%--wvbk%c7%[%c1%-existdrv%c7%][%c1%-noload%c7%][%c1%-nochoice%c7%][%cf%:/img.*%c7%] [%c1%srs%c4%|%c1%dpms%c7%[%cf%:/file.*%c7%]] [%c1%sif%c7%[%cf%:/winnt.sif%c7%]] <%c1%iso=%c7%/file.iso %c4%| %c1%disk=%c7%/hdd.* %c4%| %cf%etc.%c7%>
+call Fn.11 "%morehelp%" "1" && echo -e -n \n%c4%\t--fira && if not "%language%"=="cn" echo -e %c7% use firadisk driver || echo -e %c7% 使用firadisk驱动
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\t--wvbk && if not "%language%"=="cn" echo -e %c7% use winvblock driver || echo -e %c7% 使用winvblock驱动
+call Fn.11 "%morehelp%" "1" && echo -e -n %c7%\t--fira|--wvbk%c4%-existdrv && if not "%language%"=="cn" echo -e %c7% no driver will be mapped to fd || echo -e %c7% 不加载任何驱动
+call Fn.11 "%morehelp%" "1" && echo -e -n %c7%\t--fira|--wvbk%c4%-noload && if not "%language%"=="cn" echo -e %c7%    will not map img file to fd0 || echo -e %c7%    不加载firadisk或winvblock驱动
+call Fn.11 "%morehelp%" "1" && echo -e -n %c7%\t--fira|--wvbk%c4%-nochoice && if not "%language%"=="cn" echo -e %c7%  boot the iso file directly || echo -e %c7%  加载驱动后直接启动iso镜像
+call Fn.11 "%morehelp%" "1" && echo -e -n %c7%\t--fira|--wvbk[-nochoice][%c4%:/img.*%c7%] && if not "%language%"=="cn" echo -e %c7%  map the specified img file to fd1 || echo -e %c7%  加载指定的软驱镜像至fd1
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\tsrs%c7%|%c4%dpms%c7%[:/file.*] && if not "%language%"=="cn" echo -e %c7% specify the SRS or DPMS driver pack || echo -e %c7% 指定驱动包
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\tsif%c7%[:/winnt.sif] && if not "%language%"=="cn" echo -e %c7%  specify the unattended installation file || echo -e %c7%  指定自应答文件
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\tiso=%c7%/file.iso && if not "%language%"=="cn" echo -e %c7% specify the iso image file || echo -e %c7% 指定iso镜像
+call Fn.11 "%morehelp%" "1" && echo -e -n %c4%\tdisk=%c7%/hdd.* && if not "%language%"=="cn" echo -e %c7%   specify the hdd image file || echo -e %c7%   指定硬盘映像
+echo
+call Fn.11 "%morehelp%" "1" && pager %pager%
+
+set morehelp=
+set c1=
+set c3=
+set c4=
+set c7=
+set cf=
+set i=
+
+::call Fn.11 "%in_check%" "1" && exit
+goto :i
+
+:ic
+set input=
+commandline
+if "%debug%"=="" set debug=off ;; debug %debug%
+::手动输入模块
+:input
+if /i "%~1"="--input" && shift
+call Fn.6
+set c1=$[0104]
+set c2=$[0003]
+set c7=$[0x07]
+call Fn.11 "%language%" "en" && echo -e \n $[0x07] Please input the command, use "%c1%--help%c7%" or "$[0005]--help more%c7%" for %c2%Command Usage%c7%.
+call Fn.11 "%language%" "en" && echo -e \n $[0x07] You can also input "%c1%b%c7%" to %c2%Go Back %c7%or "$[0005]c%c7%" to %c2%Commandline%c7%.\n
+call Fn.11 "%language%" "cn" && echo -e \n $[0x07] 请输入要执行的命令, 可以输入 "%c1%--help%c7%" 或 "$[0005]--help more%c7%" 获取%c2%命令格式%c7%。
+call Fn.11 "%language%" "cn" && echo -e \n $[0x07] 也可以输入 "%c1%b%c7%" 进行%c2%返回%c7%操作, 或者输入 "$[0005]c%c7%" %c2%进入命令行%c7%。\n
+set c1=
+set c2=
+set c7=
+:i
+set input=
+if "%i%"=="0" && call Fn.6 && call Fn.11 "%language%" "en" && set findfile=File not found
+if "%i%"=="0" && call Fn.6 && call Fn.11 "%language%" "cn" && set findfile=无法找到
+if /i "%slient%"=="1" && if "%i%"=="0" && set endmode=2 && goto :end
+if /i "%slient%"=="1" && if "%i%"=="1" && set input=1 ! if "%i%"=="0" && goto :ferr ! set /p input=%runs%>  || goto :i
+goto :i%input% > nul || set in_check=1
+set input= && call :autolist_input %input% || set in_check= && goto :end
+call Fn.15 "%debug%" "off" && echo -e \n Input: %input%. %* && call Fn.73 2
+set input= && call :start %input% || set in_check= && goto :end
+::有其他参数时继续回到 :start
+set in_check=
+call Fn.15 "%~1" "" && set nextloop=1 && goto :start
+call Fn.15 "%forcend%" "exit" && set i= && goto :i
+set forcend=1
+exit
+
+::自动列表执行指定数字项
+:autolist_input
+set tmp=
+call Fn.15 "%~1" "" && set /l tmp=%~1 ! exit
+call Fn.11 "%tmp:~,1%" "\" && set input=%input% %tmp:~-1% && shift && goto :autolist_input
+if not "%tmp%"=="b" if not "%tmp%"=="exit" || set tmp=--end
+call Fn.15 "%tmp%" "--end" || set input=%input% --end && set endmode=1 &; if /i "%~2"=="exit" && set input=%input% exit && set endmode=2 && shift 2
+call Fn.15 "%tmp%" "--end" |; shift && call Fn.15 "%~0" ":autolist_input" && goto :autolist_input ! if not "%endmode%"=="1" if not "%endmode%"=="2" || exit 1
+
+if "%tmp%"=="h" && set input=--help && shift
+if "%input%"=="--help" if /i "%~1"=="more" && shift && set input=--help more
+
+if "%tmp%"=="d" && if not "%defaultc%"=="" set input=%defaultc% && shift && goto :autolist_input
+if not "%tmp:~,5%"=="--set" if not "%tmp%"=="--dev" if not "%tmp%"=="subdir" if not "%tmp%"=="--e820cycles" || set input=%input% %~1=%~2 && shift && shift && goto :autolist_input
+call Fn.11 "%autotype%" "list" && checkrange 1:%i% calc %~1 > nul && calc %md% + %~1 > nul ! set input=%input% %~1 && shift && goto :autolist_input
+call Fn.15 "%md%" "" && if %@retval%>=%md% && cat (md)%@retval%+1 | set input=%input% 
+shift
+goto :autolist_input
+
+::向下翻页模块，计算起始行数及结束行数
+:i+
+if not "%line%"=="" if not "%lineb%"=="" if not "%linee%"=="" if not "%linem%"=="" || goto :i
+if %line%>=%linee% || goto :i
+set /a lineb=%linee% > nul
+set /a linee=%linee%+%linem% > nul
+goto :next_page
+::向上翻页模块，计算起始行数及结束行数
+:i-
+if not "%line%"=="" if not "%lineb%"=="" if not "%linee%"=="" if not "%linem%"=="" || goto :i
+call Fn.15 "%lineb%" "1" || goto :i
+set /a lineb=%lineb%-%linem% > nul
+if %lineb%<=0 && set lineb=1
+set /a linee=%linee%-%linem% > nul
+if %linee%<=0 && set /a linee=%linem% > nul
+::重新定义自动列表的基础参数值，重新生成自动列表
+:next_page
+setlocal
+set getpath=
+cat (md)%md%+1 | call :next_page_path 
+set listinit=1
+set getpath= && call :init_autotype %getpath%
+set subdirgo= && goto :%subdirgo% || goto :automenu_begin
+:next_page_path
+set subdirgo=
+set path=
+call Fn.15 "%~1" "%dir_deep%" && call Fn.15 "%~2" "" || rootnoverify %~d1 && set getpath=%~pnx1 && set path=%~pnx1 && set subdirgo=automenu_begin && exit
+set getpath=%*
+call Fn.15 "%~1" "%dir_deep%" &; call Fn.15 "%~3" "" && set path=%~3 && set subdirgo=automake_all && exit ! set subdirgo=auto-all && exit
+call Fn.15 "%~2" "all\ devices" && set dir_root=%~2 && set subdirgo=subdir_begin && exit
+set path=%~3
+set subdirgo=subdir_all_begin
+exit
+
+::磁盘交换模块，按s键为循环交换，如原(hd0)->(hd2),原(hd1)->(hd0),原(hd2)->(hd1)
+::按数字键为直接交换目标hd至hd0
+:swap-ext
+::两块hdd以上才进行交换
+set swapset= && if not "%swapset%"=="0" checkrange 2:-1 calc *0x475&0xff > nul || echo -e \n No swap needed. && goto :swapend
+setlocal
+::输出hdd体积
+call :disk_size
+call Fn.15 "%hdsize:~-2%" "\n" && set hdsize=%hdsize%\n
+call Fn.15 "%language%" "cn" && echo -e \n Current%hdsize% ! echo -e \n 当前%hdsize%
+set hdsize=
+::输出各分区详细信息
+set helpinfo=1
+debug 1
+command %NTBOOT%.CMD/RUNDEVICE h
+call :part_info %tmp%
+if "%debug%"=="" set debug=off ;; debug %debug%
+set helpinfo=
+endlocal
+::选择是否交换
+call Fn.11 "%language%" "en" && echo -e \n $[0x07]Hit "$[0146]S$[0x07]" to $[0107]swap HDD$[0x07], OR "$[0146]Enter$[0x07]" to $[0107]continue$[0x07], nothing to do.
+call Fn.11 "%language%" "cn" && echo -e \n $[0x07]按 "$[0146]S$[0x07]" 键$[0107]交换磁盘$[0x07], 或按 "$[0146]Enter$[0x07]" 键$[0107]继续$[0x07], 不执行磁盘交换。
+set hdn= && checkrange 2:-1 calc *0x475&0xff > nul && set /a hdn=*0x475&0xff-1 > nul
+call Fn.15 "%hdn%" "" && call Fn.11 "%language%" "cn" && if %hdn%>=2 echo -e \n $[0x07]也可按$[0107]数字键(1-%hdn%)$[0x07]直接交换指定hd至hd0 (如：按数字键%hdn%将交换(hd%hdn%)至(hd0))。
+call Fn.15 "%hdn%" "" && call Fn.11 "%language%" "en" && if %hdn%>=2 echo -e \n $[0x07]Hit $[0107]1 to %hdn% $[0x07]can swap specified hd to hd0, eg. hit %hdn% will swap (hd%hdn%) to (hd0).
+::call Fn.19
+::call Fn.15 "%@retval%" "8051" && call Fn.15 "%@retval%" "8019" && goto :swapend
+set testkey=
+set swaploop=
+pause
+call Fn.15 "%@retval%" "83" && call Fn.15 "%@retval%" "115" && set testkey=%@retval%
+call Fn.15 "%testkey%" "" && checkrange 1:%hdn% calc %testkey%-48 > nul && set /a swaploop=%testkey%-48 > nul
+call Fn.15 "%testkey%" "" && set testkey= && call Fn.15 "%swaploop%" "" || goto :swapend
+::交换模块
+:swa
+if "%swaploop%"=="" if /i not "%~1"=="--swap-ext" if /i not "%~1"=="--swap-all" && set swaploop=1
+set swapset= && if not "%swapset%"=="0" checkrange 2:-1 calc *0x475&0xff > nul || goto :swapend
+set hd0=0x80 && if "%swaploop%"=="" set /A hdm=*0x475&0xff+0x7f > nul || set /A hdm=%swaploop%+0x80 > nul
+::先将hd0交换为最后一块hdd
+map (%hd0%) (%hdm%) > nul
+call Fn.11 "%updateud%" "1" &; calc *0x82b8 > nul && set /A hdu=*0x82b9&0xff > nul && set udswap=
+call Fn.11 "%updateud%" "1" &; calc *0x82b8 > nul && if %hdu%==%hd0% calc *0x82b9=*0x82b9&0xffffff00|%hdm% > nul && set udswap=1
+:swapbegin
+::依次交换每块hdd
+if "%swaploop%"=="" set /A hd1=%hd0%+1 > nul || set hd1=%hdm%
+map (%hd1%) (%hd0%) > nul
+call Fn.11 "%updateud%" "1" &; call Fn.15 "%udswap%" "1" && calc *0x82b8 > nul && set /A hdu=*0x82b9&0xff > nul
+call Fn.11 "%updateud%" "1" &; call Fn.15 "%udswap%" "1" && calc *0x82b8 > nul && if %hdu%==%hd1% calc *0x82b9=*0x82b9&0xffffff00|%hd0% > nul && set udswap=1
+set /A hd0=%hd1% > nul
+call Fn.15 "%hd1%" "%hdm%" && goto :swapbegin
+map --rehook
+set hd0=
+set hd1=
+call Fn.11 "%updateud%" "1" &; set hdu=
+set hdm=
+call Fn.11 "%updateud%" "1" &; set udswap=
+call Fn.15 "%swaploop%" "" && set targethd=(hd%swaploop%) ! set targethd=(hd1)
+set swaploop=
+call Fn.15 "%language%" "cn" && echo -e \n Success for swap %targethd% to (hd0). ! echo -e \n 交换磁盘 %targethd% 至 (hd0) 成功。
+set targethd=
+::若是增强版swap则继续提示是否交换
+if /i "%~1"=="--swap-ext" && goto :swap-ext
+:swapend
+call Fn.11 "%swapback%" "1" && set swapback= && exit
+goto :next
+
+::获取所有hdd体积模块
+:disk_size
+::计算硬盘数
+if "%hddm%"=="" && set /a hddm=*0x475&0xff-1 > nul && set hddt=0 && set hdsize=
+setlocal
+geometry (hd%hddt%) | call :sector_size 
+::第七参数为扇区总数及每扇区大小，两数相乘即为hdd总体积（字节）
+call :get_size %sectorc%%*%sectors%
+set sectors=
+set sectorc=
+calc %tmp:~,-3% + 1 > nul
+echo -e %@retval%\x20%tmp:~-2% | set tmp=
+::对结果进行前对齐
+call :fr_check 7
+set size=%tmp%
+set tmp=
+::除第一个hdd体积外，每三个hdd就换行输出
+if "%hddt%"=="0" && set tempn=\n\x20\x20\x20\x20\x20\n\x20\x20\x20\x20\x20 ! set tempn= && checkrange 0 calc %hddt% % 3 > nul && set tempn=\n\x20\x20\x20\x20\x20
+endlocal && call Fn.15 "%language%" "cn" && set hdsize=%hdsize%\x20hdd%hddt%\x20size\x20is\x20%size%\x20\x3b%tempn% ! set hdsize=%hdsize%\x20hdd%hddt%\x20体积为\x20%size%\x20\x3b%tempn%
+if "%hddt%"=="%hddm%" && set hddt= && set hddm= && exit
+set /a hddt=%hddt%+1 > nul
+goto :disk_size
+
+:.gz
+call Fn.11 "%gzdetect%" "0" && goto :.ima
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" || shift && goto :ferr
+call Fn.11 "%filefnd%" "0" && goto :automenu_begin
+::0x82a4非0时gzip不自动解压
+write 0x82a4 1 > nul
+cat --locatei=\x1F\x8B\x08 --length=0x3 %loadroot%%%loadfile% > nul || write 0x82a4 0 > nul && goto :.ima
+cat --skip=0xa --locate=\x00 --number=1 %loadroot%%%loadfile% > nul || write 0x82a4 0 > nul && goto :.ima
+set tmp=%?%
+cat --skip=0xa --locate=\x2E --length=%?% %loadroot%%%loadfile% > nul || write 0x82a4 0 > nul && goto :.bin
+calc %tmp%-%?% > nul
+cat --skip=%?% --length=%@retval% %loadroot%%%loadfile% | set /l tmp=
+write 0x82a4 0 > nul || set tmp= && goto :%tmp% > nul || goto :.ima
+:.ima
+:.img
+:.lzma
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" || shift && goto :ferr
+call Fn.11 "%filefnd%" "0" && goto :automenu_begin
+call Fn.11 "%autotype%" "list" && call Fn.11 "%loadset%" "0" && goto :boot
+call :kernel %loadroot%%%loadfile% || goto :boot
+set mem=--mem && call Fn.11 "%memset%" "0" && set mem=
+map %mem% %loadroot%%%loadfile% (fd0) > nul
+map --hook
+if /i "%~2"=="--dts-list" && shift && goto :dts-list ! set /l tmp=%~n1 && shift
+set tmp= && if "%~1"=="" goto :img_boot || goto :%tmp:~,3%-ext || set /l tmp=%~1
+set tmp= && goto :%tmp:~2% || goto :img_boot
+
+:dts-ext
+if /i "%~1"=="--dts-ext" && shift
+if "%~1"=="" && goto :dts-list
+cat --locate="MENUDEFAULT=" --number=1 (0)/CONFIG.SYS
+cat --skip=%?% --locatei="," --replace=",01" --number=1 (0)/CONFIG.SYS
+cat --skip=%?% --locate="MENUDEFAULT=" --number=1 (0)/CONFIG.SYS
+cat --skip=%?% --locatei="," --replace=",01" --number=1 (0)/CONFIG.SYS
+cat --locatei="dts.bat " --number=1 (0)/AUTOEXEC.BAT
+shift && write --offset=%?% (0)/AUTOEXEC.BAT DTS.bat %* end
+goto :img_boot
+
+:dts-list
+::call Fn.6
+command (0)/GRUB/OFFSET.grb
+::判断是否加载过字库，但无法判断当前是否加载了字库
+::read 0x1800820 || font (fd0)/grub/ghosthex.gz
+font && font (fd0)/grub/ghosthex.gz
+if not "%offset1%"=="" && write --offset=%offset1% (0)/CONFIG.SYS MENUDEFAULT=2,01  
+cat --skip=3 (fd0)/grub/items.txt
+set /p p 请输入要连续调用的模块序列(例如:1a 4b 3a):
+write --offset=%offset4% (0)/AUTOEXEC.BAT DTS.bat %p% end
+goto :img_boot
+
+:max-ext
+if "%~1"=="" && exit ! if /i "%~1"=="--max-ext" && shift ! if /i not "%~1"=="call" && set maxext=call
+if "%~1"=="kon" && cat --locatei="default=F," --replace="default=I," (0)/CONFIG.SYS
+set maxext=%maxext% %*
+cat --locatei="default=" --number=1 (0)/CONFIG.SYS > nul
+cat --skip=%?% --locatei="," --replace=",0" --number=1 (0)/CONFIG.SYS
+cat --locatei="Call M.BAT" --number=1 (0)/AUTOEXEC.BAT > nul || cat --locate="gh.bat" --replace="%maxext%" (0)/autoexec.bat && goto :img_boot
+set maxext= && call Fn.15 "%?%" "0x0" && write --offset=%?% (0)/AUTOEXEC.BAT %maxext% \r M.BAT \r
+goto :img_boot
+
+:.iso
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" || shift && goto :ferr
+call Fn.11 "%filefnd%" "0" && goto :automenu_begin
+call Fn.11 "%autotype%" "list" && call Fn.11 "%loadset%" "0" && goto :boot
+set tmp=%~2
+set tmp= && call Fn.11 "%tmp:~,3%" "(0x" && set tar=%tmp% && shift 2 ! set tar=(0xff)
+set mem1=--mem
+call Fn.11 "%memset%" "1" && set mem=--mem ! call Fn.11 "%memset%" "0" && set mem1=
+map %mem% %loadroot%%%loadfile% %tar% > nul || map %mem1% %loadroot%%%loadfile% %tar% > nul || echo map %loadroot%%%loadfile% to %tar% failed && call Fn.73 3
+call Fn.15 "%e820%" "" && map --e820cycles=%e820%
+map --hook
+set cdrom=cdrom,vmem=find:%loadfile%;
+call Fn.15 "%prinstall%" "1" && goto :iso_boot
+if not "%noisopar%"=="1" if not "%nochoice%"=="1" || goto :iso_boot
+call Fn.11 "%hdd_boot%" "1" && set swapback=1 && call :swap-ext --swap-ext
+goto :cd_or_hdd
+
+:.0
+:.bin
+set loadroot=
+set loadfile=
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call Fn.11 "%tmp:~-1%" "/" && call :find "%tmp%" dironly && goto :automenu_begin
+cat --length=0 %tmp% > nul && set loadfile=%tmp% ! call :find "%tmp%" || shift && goto :ferr
+call Fn.11 "%filefnd%" "0" && goto :automenu_begin
+call Fn.15 "%loadroot%" "" |; call Fn.11 "%language%" "en" && echo -e \n $[0004]Loading $[0106]%loadfile%$[0x07]... ! echo -e \n $[0004]正在加载 $[0106]%loadfile%$[0x07]...
+call Fn.11 "%autotype%" "list" && call Fn.11 "%loadset%" "0" && goto :boot
+cat --locate=\xEF\xBB\xBF --length=3 %loadfile% > nul && calc 3 > nul
+cat --skip=%@retval% --locatei="!BAT" --length=0x4 %loadfile% > nul && goto :grub4dos_script
+call :kernel %loadroot%%%loadfile% || goto :boot
+goto :chain_boot
+
+::对pe引导文件特殊处理，确保在任意分区上都能启动
+:pe
+command %NTBOOT%.CMD/EMPPATH tmp="%~2" || echo -n
+call Fn.15 "%~2" "" && shift 2 && call :find "%tmp%" fileonly exit ! call :find /WXPE/SETUPLD2.BIN fileonly exit
+call Fn.11 "%filefnd%" "0" && shift && set filefnd= && goto :ferr
+map --in-place ()+1 (hd0)
+map --hook
+goto :chain_boot
+
+::usb设备启动后启动本地盘上的系统模块
+:nt
+shift
+set swapback=1
+call Fn.11 "%@root%" "%Boot_dev%" && call Fn.11 "%hdd_boot%" "1" && call :swap --swap-all ! call :swap-ext --swap-ext
+rootnoverify (hd0) || exit 1
+set usrdev=h
+command %NTBOOT%.CMD/EMPPATH tmp="%~2" || echo -n
+call Fn.15 "%~2" "" && shift 2 && call :find "%tmp%" fileonly exit ! call :find /BOOTMGR fileonly || call :find /NTLDR fileonly || goto :ferr
+call Fn.11 "%filefnd%" "0" && shift && set filefnd= && goto :ferr
+::dd if=()+1 of=(md)0x3E+1
+goto :chain_boot
+
+:.lst
+:.0pe
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :menucheck "%tmp%" |; call :find "%tmp%" dironly && goto :automenu_begin ! shift && goto :ferr
+call Fn.15 "%loadroot%" "" |; call Fn.11 "%language%" "en" && echo -e \n $[0004]Loading $[0106]%loadfile%$[0x07]... ! echo -e \n $[0004]正在加载 $[0106]%loadfile%$[0x07]...
+call Fn.11 "%autotype%" "list" && call Fn.11 "%loadset%" "0" && goto :boot
+if /i "%~nx1"=="menu.0pe" && call Fn.15 "%~2" "" && shift 2 && shift 2 && call :0pe %2 %3
+configfile %loadroot%%%loadfile%
+exit
+
+:0pe
+if #%1==# && exit
+::terminal console
+write 0x60300 0x60300
+write 0x60100 %~1
+if /i "%~x2"==".iso" || exit
+if "%~2"=="%~nx2" && set tmp=%usrpath%%%~nx2 ! set tmp=%~pnx2
+write (md)0x301+1 %tmp%
+set tmp=%tmp%
+set /a tmp=%@retval% > nul
+write 0x60360 %tmp%
+set tmp=
+exit
+
+:.ini
+:.txt
+:.log
+:.inf
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" || shift && goto :ferr
+call Fn.11 "%filefnd%" "0" && goto :automenu_begin
+call Fn.11 "%autotype%" "list" && call Fn.11 "%loadset%" "0" && goto :boot
+pager status > nul
+set pager=on && calc %@retval% > nul || set pager=off
+pager on
+::calc 46<<2+*0x8304 > nul
+::read %@retval% > nul && call Fn.70
+set skip=0x0 && cat --locate=\xEF\xBB\xBF --length=3 %loadroot%%%loadfile% > nul && set skip=0x3
+cat --skip=%skip% %loadroot%%%loadfile% && echo -e \n$[0x75][End, Hit any key to quit]
+pause
+pager %pager%
+goto :next
+
+::增加对.vhd/.vhdx的处理 pseudo 2013-12-25
+:.vhd
+:.vhdx
+
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" || shift && goto :ferr
+call Fn.11 "%filefnd%" "0" && goto :automenu_begin
+call Fn.15 "%loadset%" "0" && call Fn.15 "%bootset%" "0" && goto :vhd_boot
+endlocal && set loadroot=%loadroot% && set loadfile=%loadfile% && set loadpath=%loadpath%
+if /i "%~1"=="--boot" && set bootset=
+setlocal
+goto :next
+:vhd_boot
+calc *0x4cb00=0x1 > nul
+set nt56=NT6 && set keyt= && call Fn.6
+call Fn.11 "%language%" "cn" && echo -e \n\n$[0105]    即将启动映像: $[0107]%loadroot%%%loadfile% \n\n\n\n$[0102]    键入数字$[0104] 5$[0102] 将当作$[0104] NT5$[0102] 映像启动 \n\n$[0102]    键入数字$[0104] 6$[0102] 将当作$[0104] NT6$[0102] 映像启动
+call Fn.11 "%language%" "cn" && echo -e \n$[0102]    键入字母$[0104] c$[0102] 将进入$[0104] grub$[0102] 命令行 \n\n\n\n$[0105]    等待$[0107] 10$[0105] 秒后默认当作$[0107] NT6$[0105] 映像启动\n\n
+call Fn.11 "%language%" "en" && echo -e \n\n$[0105]    Will Boot From: $[0107]%loadroot%%%loadfile% \n\n\n\n$[0102]    Press$[0104] 5$[0102] ,Will boot as$[0104] NT5$[0102] image file \n\n$[0102]    Press$[0104] 6$[0102] ,Will boot as$[0104] NT6$[0102] image file
+call Fn.11 "%language%" "en" && echo -e \n$[0102]    Press$[0104] c$[0102] ,Will enter$[0104] grub$[0102] commandline \n\n\n\n$[0105]    Wait for$[0107] 10$[0105] seconds,Will boot as$[0107] NT6$[0105] image file\n\n
+pause --wait=10 && set /A keyt=*0x4cb00
+if not exist keyt && goto :vhd_boot
+if "%keyt%"=="0x1" && set keyt= ! if "%keyt%"=="0xD" && set keyt=
+if "%keyt%"=="0x36" && set keyt= ! if "%keyt%"=="0x35" && set keyt= && set nt56=VBOOT
+if "%keyt%"=="0x43" && commandline ! if "%keyt%"=="0x63" && commandline
+if not exist nt56 && goto :vhd_boot
+if exist keyt && goto :vhd_boot
+set nohd0=
+if /i "%nt56%"=="VBOOT" && geometry (hd0) || set nohd0=1
+if exist nohd0 && map (hd1) (hd0) && map (hd2) (hd1) && map (hd3) (hd2) && map (hd4) (hd3) && map (hd5) (hd4) ! echo -n
+if exist nohd0 && map --rehook ! echo -n
+set nohd0=
+command %NTBOOT% %nt56%="%loadroot%%%loadfile%"
+exit
+
+:ramos
+shift
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" fileonly || shift && goto :ferr
+set mem=--mem
+call Fn.11 "%memset%" "0" && set mem=
+call Fn.11 "%topset%" "1" && set mem=--mem --top
+map %mem% %loadroot%%%loadfile% (hd) > nul || map --mem %loadroot%%%loadfile% (hd) || map %loadroot%%%loadfile% (hd) > nul
+map --rehook
+map (hd-1) (hd0)
+map (hd0) (hd-1)
+map --rehook
+if "%~2"=="" && goto :hdd_boot
+shift
+rootnoverify (hd0,0)
+chainloader %~1 || goto :hdd_boot
+goto :boot
+
+::各种启动方式
+:iso_boot
+::call Fn.11 "%prinstall%" "1" && call :fira_auto
+call :fira_auto
+if "%tar%"=="" && set tar=(0xff)
+chainloader %tar% || echo -n
+goto :boot
+:img_boot
+rootnoverify (fd0)
+chainloader (0)+1
+goto :boot
+:hdd_boot
+call Fn.15 "%cdrom%" "" && set disk=%disk:~,-6%;
+call Fn.11 "%prinstall%" "1" && call :driver_manu
+rootnoverify (hd0)
+chainloader +1
+goto :boot
+:chain_boot
+call Fn.11 "%Boot_dev%" "pd" && chainloader --force --raw (pd)%~pnx1 && goto :boot
+chainloader %loadroot%%%loadfile% || chainloader --force %loadroot%%%loadfile%
+goto :boot
+:kernel
+call Fn.11 "%kernel%" "0" && exit
+cat --locate=\xEB --length=4 --number=1 %~1 > nul || kernel %~1 > nul && exit 1
+exit
+:boot
+call Fn.15 "%loadset%" "0" && call Fn.15 "%bootset%" "0" && boot
+endlocal && set loadroot=%loadroot% && set loadfile=%loadfile% && set loadpath=%loadpath%
+if /i "%~1"=="--boot" && set bootset=
+setlocal
+goto :next
+
+::--fira /pe.iso                               A:firadisk  B:none
+::--fira srs /pe.iso                           A:firadisk  B:srs
+::--fira iso=/win$.iso [disk=/ramxp.img]       A:empty     B:firadisk
+::--fira srs iso=/win$.iso [disk=/ramxp.img]   A:srs       B:firadisk
+::--fira disk=/ramxp.img                       0x55 only
+
+::--fira-existdrv    goto load_sif, load iso/disk file directly
+::--fira-nochoice    call fira_auto, then load iso directly
+::--fira-noload      no fira/wvbk driver will be loaded, only exist (empty or srs/dpms driver)
+::when %exchange% is 0, stop changing fd queue
+
+::default path
+::fira|wvbk: %usrpath%firadisk.img|winvblk.img
+::srs: %runpath%/SRS/
+::dpms: %runpath%/driverpack.ini or dpms.iso or .lzma or .gz or .iso.gz
+
+:fir
+set dflag=fira
+set loop=1
+:wvb
+call Fn.15 "%loop%" "1" && set dflag=wvbk
+set loop=
+set drvpath=
+set sifpath=
+set srspath=
+set existdrv=
+set noisopar=
+set fd0path=
+set fd1path=
+::获取参数指定文件路径
+set tmp=%~2
+if /i "%tmp:~,3%"=="sif" && shift 2 && if "%tmp:~4%"=="" set sifpath=%NTBOOT%.MOD/WINNT.SIF || set sifpath=%tmp:~4%
+set tmp=%~2
+if /i "%tmp:~,3%"=="srs" && shift 2 && if "%tmp:~4%"=="" set srspath=%@root%/SRS/ || set srspath=%tmp:~4%
+set tmp=%~2
+if /i "%tmp:~,4%"=="dpms" && shift 2 && set srsmode=2 && if "%tmp:~5%"=="" set srspath=%@root%/SRS/ || set srspath=%tmp:~5%
+set tmp=%~2
+if /i "%tmp:~,3%"=="sif" && shift 2 && if "%tmp:~4%"=="" set sifpath=%NTBOOT%.MOD/WINNT.SIF || set sifpath=%tmp:~4%
+set tmp=
+::加载指定firadisk/winvblk驱动文件
+set m=%m%
+set /a tmp=%@retval% - 6 > nul
+echo %m% > (md)0x200+1
+call Fn.11 0x40000 ":" &; calc %@retval% - 0x40000 + 1 > nul &; set /a tmp=%@retval% - 7 > nul && call set drvpath=%^m:~%%@retval%%%
+if "%drvpath%"=="" && if "%dflag%"=="fira" set drvpath=%NTBOOT%.IMG/FIRADISK.IMG || if "%dflag%"=="wvbk" set drvpath=%NTBOOT%.IMG/WINVBLK.IMG
+::直接启动iso 不出现按键选择项 同时指定仿真驱动文件
+call call Fn.11 "%^m:~6,%%tmp%%%" "-nochoice" && set nochoice=1
+::不加载仿真驱动文件
+call call Fn.11 "%^m:~6,%%tmp%%%" "-noload" && set drvpath=
+::不对fd0和fd1进行处理
+set tmp= && call call Fn.11 "%^m:~6,%%tmp%%%" "-existdrv" && set existdrv=1 && goto :load_sif
+::直接加载disk镜像
+if /i "%~2"=="disk" && shift && set noisopar=1 && goto :load_disk
+::查找仿真驱动文件
+call Fn.15 "%drvpath%" "" && command %NTBOOT%.CMD/EMPPATH drvpath="%drvpath%" || echo -n
+call Fn.15 "%drvpath%" "" && call :find "%drvpath%" fileonly || goto :ferr
+set drvpath=%loadroot%%%loadfile%
+::参数不为iso则特殊处理
+::if /i not "%~2"=="iso" && set noisopar=1
+::处理SRS 位于fd0
+call Fn.15 "%srspath%" "" || goto :srs_end
+command %NTBOOT%.CMD/EMPPATH srspath="%srspath%" || echo -n
+call :find "%srspath%" || goto :ferr
+call Fn.15 "%filefnd%" "0" && set srspath=%loadroot%%%loadfile% ! call Fn.15 "%loadpath:~-1%" "/" && set srspath=%loadroot%%%loadpath%/ ! set srspath=%loadroot%%%loadpath%
+::srsmode为1且指定磁盘驱动为img镜像时直接加载srs驱动镜像
+call Fn.11 "%srsmode%" "1" && call Fn.15 "%filefnd%" "0" && call :map_image "%srspath%" (fd0) --mem && goto :srs_end
+set srs_err=
+insmod %NTBOOT%.MOD/NTBOOT.MOD > nul || set srs_err=2.6 && goto :srs_err
+echo -e \n Getting ready to load the driver...
+call Fn.15 "%srsmode%" "2" && command %NTBOOT%.CMD/RUNSRS "%srspath%" ! command %NTBOOT%.CMD/RUNDPMS "%srspath%"
+if %srs_err%>=2 &; echo -e \n Err%srs_err%, trying another way to load disk driver... && call Fn.15 "%srsmode%" "2" && command %NTBOOT%.CMD/RUNDPMS "%srspath%" ! command %NTBOOT%.CMD/RUNSRS "%srspath%"
+:srs_err
+map --status=3 && map --unmap=3 && map --rehook
+set filefnd=
+set dirfnd=
+call Fn.11 "%srs_err%" "0" && call Fn.11 "%language%" "en" && echo -e \n $[0x04]Loading$[0x0F] Mass Storage DriverPacks, $[0x0E]success$[0x07]...
+call Fn.11 "%srs_err%" "0" && call Fn.11 "%language%" "cn" && echo -e \n $[0x04]正在加载$[0x0F] Mass Storage 磁盘驱动, $[0x0E]成功$[0x07]...
+call Fn.11 "%srs_err%" "1" && call Fn.11 "%language%" "en" && echo -e \n $[0x04]Warning$[0x0F] No AHCI/RAID controller, do NOT need SRS Driver.$[0x07]\x20
+call Fn.11 "%srs_err%" "1" && call Fn.11 "%language%" "cn" && echo -e \n $[0x04]友情提示$[0x0F] 没有检测到AHCI/RAID控制器，无需加载SRS驱动。$[0x07]\x20
+call Fn.11 "%srs_err%" "2" && call Fn.11 "%language%" "en" && echo -e \n $[0x0C]Warning%srs_err%$[0x0F] Mass Storage DriverPacks load $[0x0C]failed\x20$[0x0F]!!$[0x07]\x20
+call Fn.11 "%srs_err%" "2" && call Fn.11 "%language%" "cn" && echo -e \n $[0x0C]错误警告%srs_err%$[0x0F] Mass Storage 磁盘驱动模块加载$[0x0C]失败$[0x0F]!!$[0x07]\x20
+call Fn.11 "%srs_err%" "3" && call Fn.11 "%language%" "en" &; echo -e -n \n $[0x0C]Warning%srs_err%$[0x0F] Mass Storage Controller drivers $[0x0E]not found && call Fn.15 "%srsmode%" "2" && echo -e $[0x0F], Hardware ID is:\n\n \t\x20\x20$[0x0E]%HWID%$[0x07]\x20 ! echo -e $[0x0F]!!$[0x07]\x20
+call Fn.11 "%srs_err%" "3" && call Fn.11 "%language%" "cn" &; echo -e -n \n $[0x0C]错误警告%srs_err%$[0x0E] 没有找到$[0x0F]合适的Mass Storage磁盘驱动 && call Fn.15 "%srsmode%" "2" && echo -e $[0x0F], 硬件ID是: \n\n \t\x20\x20$[0x0E]%HWID%$[0x07]\x20 ! echo -e $[0x0F]!!$[0x07]\x20
+::delmod chkpci > nul
+::delmod inifile > nul
+:srs_end
+::iso参数存在 A:empty/srs  B:firadisk  使用--fira-noload参数 则A:srs/empty B:none
+call Fn.15 "%noisopar%" "1" && goto :load_floppy
+::不存在iso则 A: firadisk  B:srs/none  使用--fira-noload参数 则A:none  B:srs/none
+call Fn.15 "%srspath%" "" && map --status=0 && call :map_image (fd0) (fd1)
+map --status=0 && map --unmap=0 && map --rehook
+call Fn.15 "%drvpath%" "" && call :map_image "%drvpath%" (fd0) --mem
+goto :load_sif
+:load_floppy
+::存在iso参数情况
+map --status=1 && map --unmap=1 && map --rehook
+call Fn.15 "%drvpath%" "" && call :map_image "%drvpath%" (fd1) --mem
+call Fn.15 "%srspath%" "" && map --status=0 && goto :load_sif
+map --mem %NTBOOT%.IMG/EMPTY.IMG (0) || goto :floppy_empty
+map --status=3 && map --unmap=3
+map --rehook
+goto :load_sif
+:floppy_empty
+echo > (md)0x200+2
+write --offset=0xb (md)0x200+3 \x00\x02\x01\x01\x00\x01\x70\x00\x10\x00\xfd\x01\x00\x08\x00\x01
+write 0x401FE 0xAA55
+write 0x40200 0xfffffe
+map --mem (md)0x200+2 (fd0)
+map --rehook
+:load_sif
+::调整fd0和fd1顺序
+call Fn.15 "%exchange%" "0" && call Fn.15 "%existdrv%" "1" && call :exAB || echo -n
+::处理无人值守安装文件
+set sif_err=
+call Fn.15 "%sifpath%" "" || goto :load_choise
+delmod -l fat > nul |; insmod %NTBOOT%.MOD/NTBOOT.MOD > nul && echo -n ! set sif_err=2.2 && goto :sif_err
+command %NTBOOT%.CMD/EMPPATH sifpath="%sifpath%" || echo -n
+call :find "%sifpath%" fileonly || set sif_err=1 && goto :sif_err
+fat copy /o %loadroot%%%loadfile% (0)/WINNT.SIF > nul || set sif_err=2.4 && goto :sif_err
+set sif_err=0 && call Fn.26 (0)/WINNT.SIF || set sif_err=2.6
+:sif_err
+map --status=3 && map --unmap=3 && map --rehook
+call Fn.11 "%sif_err%" "0" && call Fn.11 "%language%" "en" && echo -e \n $[0x04]Loading$[0x0F] Unattended installation file, $[0x0E]success$[0x07]...
+call Fn.11 "%sif_err%" "0" && call Fn.11 "%language%" "cn" && echo -e \n $[0x04]正在加载$[0x0F] 无人值守安装应答文件, $[0x0E]成功$[0x07]...
+call Fn.11 "%sif_err%" "1" && call Fn.11 "%language%" "en" && echo -e \n $[0x0C]Warning$[0x0F] Unattended installation file $[0x0E]not found$[0x07]\x20!
+call Fn.11 "%sif_err%" "1" && call Fn.11 "%language%" "cn" && echo -e \n $[0x0C]错误警告 $[0x0E]无法找到$[0x0F]指定的无人值守安装应答文件$[0x07]!
+call Fn.11 "%sif_err%" "2" && call Fn.11 "%language%" "en" && echo -e \n $[0x0C]Warning%sif_err%$[0x0F] Unattended installation file load $[0x0C]failed\x20$[0x07]!!
+call Fn.11 "%sif_err%" "2" && call Fn.11 "%language%" "cn" && echo -e \n $[0x0C]错误警告%sif_err%$[0x0F] 无人值守安装应答文件加载$[0x0C]失败$[0x07]!!
+:load_choise
+call Fn.15 "%existdrv%" "1" && set prinstall=1
+if /i "%~2"=="iso" && shift 2 ! set noisopar=1 && call Fn.15 "%forcend%" "1" && echo -n ! endlocal && set forcend=exit && exit
+shift
+::查找iso指定的文件
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" || shift && goto :ferr
+::若指定的是文件夹则转至自动菜单处理
+call Fn.11 "%filefnd%" "0" && call Fn.15 "%dirfnd%" "0" && shift && set autotype=list && set show=SHOW.ISO && setlocal && set drvtips=1 && goto :automenu_begin
+::设置firadisk驱动需要的参数
+call Fn.11 "%dflag%" "fira" && set cdrom=cdrom,vmem=find:%loadfile%;
+::加载iso
+call Fn.11 "%memset%" "1" && set mem=--mem
+map %mem% %loadroot%%%loadfile% (0xff) > nul || map --mem %loadroot%%%loadfile% (0xff) || map %loadroot%%%loadfile% (0xff) > nul
+call Fn.15 "%e820%" "" && map --e820cycles=%e820%
+map --rehook
+::转至disk镜像处理
+if /i "%~2"=="disk" && shift && goto :load_disk
+::直接启动iso或转至选择项
+if not "%noisopar%"=="1" if not "%nochoice%"=="1" || goto :iso_boot
+call Fn.11 "%hdd_boot%" "1" && set swapback=1 && call :swap-ext --swap-ext
+goto :cd_or_hdd
+
+::firadisk驱动增强处理 在第二阶段可以无需进入grub firamode值为2 按一般firadisk驱动处理
+:fira_auto
+if "%dflag%"=="" && exit
+call Fn.11 "%dflag%" "wvbk" &; if "%diskfile%"=="" && exit ! goto :driver_manu
+if "%disk%"=="" if "%cdrom%"=="" && exit
+if "%firamode%"=="2" && goto :driver_manu
+::call Fn.11 "%~n1" "64" && set is64=amd64/
+call Fn.11 "%cdrom%" "64" && set is64=amd64/
+set tmp=(1) &; map --status=1 |; cat --length=0 (0)/firadisk.inf && set tmp=(0)
+cat --locate="value=Parameters" %tmp%/%is64%TXTSETUP.OEM > nul && goto :driver_manu
+cat --locate=###### --number=1 %tmp%/%is64%TXTSETUP.OEM > nul || goto :driver_manu
+write --offset=%?% %tmp%/%is64%TXTSETUP.OEM value=Parameters,StartOptions,REG_SZ,"%disk%%%cdrom%"\r\n
+cat --skip=%?% --locate=/ --replace=\\ %tmp%/%is64%TXTSETUP.OEM
+exit
+::普通firadisk驱动及winvblock驱动处理
+:driver_manu
+echo > (md)0x200+4
+map --heads=2 --sectors-per-track=18 --mem (md)0x200+4 (0x55)
+map --rehook
+call Fn.11 "%dflag%" "fira" && write (0x55) [FiraDisk]\nStartOptions=%disk%%%cdrom%\n\0
+call Fn.11 "%dflag%" "wvbk" && write (0x55) #GRUB4DOS\x00v=1\x00%diskfile:~1%\x00\x80\x00
+exit
+
+:map_image
+echo -e -n \n Attempt to map %~1 to %~2 ... 
+map %~3 %~1 %~2 && echo -e succeed ! echo -e failed
+map --rehook
+exit
+::处理fd0及fd1内存起始位置，使其“合法化”，摘自zhaohj，稍改
+:exAB
+map --status=0 || map --status=1 || exit
+setlocal
+::A盘FIRADISK/WINVBLOCK，无B盘。
+map --status=1 |; cat --length=0 (0)/txtsetup.oem || exit ! cat --length=0 (0)/firadisk.inf && exit ! cat --length=0 (0)/winvblk.inf && exit
+::A盘空，B盘SRS。
+map --status=1 |; map (0)+1 (1) && map --mem %NTBOOT%.IMG/EMPTY.IMG (0) && map --rehook ! exit
+::A盘SRS，无B盘。
+map --status=0 |; cat --length=0 (1)/txtsetup.oem && map (1)+1 (0) && map --unmap=1 && map --rehook && exit ! exit
+::A盘SRS，B盘FIRADISK/WINVBLOCK。
+map --status=1 || exit
+ls (1)/ > nul || map --unmap=1 && map --rehook && exit
+cat --length=0 (1)/firadisk.inf |; cat --length=0 (0)/firadisk.inf && map (0) (1) && map (1) (0) && map --rehook ! echo -n
+cat --length=0 (1)/winvblk.inf |; cat --length=0 (0)/winvblk.inf && map (0) (1) && map (1) (0) && map --rehook ! echo -n
+::B盘firadisk安装系统，A盘仿真内存的起始地址一定要高出B盘，否则会提示插入A盘
+::B盘winvblok安装系统，A盘仿真内存的起始地址一定要低于B盘，否则会提示插入A盘
+::http://bbs.wuyou.com/forum.php?mod=viewthread&tid=203313&extra=&page=1
+map --status=1 || exit
+set /a addr1=%?% > nul
+map --status=0 || exit
+set /a addr0=%?% > nul
+if %addr0%>=%addr1% && set fdn=0 ! set fdn=1
+if %fdn%==0 && cat --length=0 (1)/firadisk.inf && exit ! if %fdn%==1 && cat --length=0 (1)/winvblk.inf && exit
+map (%fdn%)+1 (rd) && map --mem (rd)+1 (%fdn%) && map --rehook ! echo -n
+endlocal
+exit
+
+::加载hdd镜像模块
+:load_disk
+shift
+command %NTBOOT%.CMD/EMPPATH tmp="%~1" || echo -n
+call :find "%tmp%" fileonly || shift && goto :ferr
+set diskfile=%loadfile%
+call Fn.11 "%memset%" "1" && set mem=--mem ! set mem=
+map --heads=255 --sectors-per-track=63 %mem% %loadroot%%%loadfile% (hd) > nul
+map --rehook
+map (hd-1) (hd0)
+map (hd0) (hd-1)
+map --rehook
+call Fn.11 "%dflag%" "fira" && set disk=disk,vmem=find:%diskfile%,boot;
+call Fn.15 "%noisopar%" "1" && goto :cd_or_hdd
+goto :hdd_boot
+
+::选择从iso镜像启动还是从hdd启动
+:cd_or_hdd
+call Fn.11 "%language%" "en" && echo -e \n $[0x07]Hit "$[0146]Enter$[0x07]" to $[0107]boot from ISO$[0x07],
+call Fn.11 "%language%" "en" && echo -e \n $[0x07]OR "$[0146]H$[0x07]" to $[0107]continue System Installation$[0x07] (will boot from harddisk).\n
+call Fn.11 "%language%" "cn" && echo -e \n $[0x07]按 "$[0146]Enter$[0x07]" 键从$[0107]ISO镜像启动$[0x07],
+call Fn.11 "%language%" "cn" && echo -e \n $[0x07]或者按 "$[0146]H$[0x07]" 键进行$[0107]系统安装第二阶段操作$[0x07]（将从硬盘启动）。\n
+call Fn.19
+call Fn.15 "%@retval%" "9064" && call Fn.15 "%@retval%" "9032" && goto :iso_boot
+call Fn.15 "%diskfile%" "" && goto :hdd_boot
+call :fira_auto
+find --set-root --devices=h /WIN_NT$.~BT/SETUPLDR.BIN && chainloader /WIN_NT$.~BT/SETUPLDR.BIN && boot && exit
+call Fn.11 "%language%" "en" && find --set-root --devices=h /NTLDR if exist /NTDETECT.COM || echo -e \x20System installation failed, hit any key to back. && pause && goto :next
+call Fn.11 "%language%" "cn" && find --set-root --devices=h /NTLDR if exist /NTDETECT.COM || echo -e \x20系统安装第二阶段引导失败, 请按任意键返回。 && pause && goto :next
+makeactive --status > nul |; echo -e -n \n Press A to set %@root% active, or any other key to continue. && pause --test-key --wait=7 > nul &; if not "%@retval%"=="7777" if not "%@retval%"=="7745" && echo -e .. ! makeactive && echo -e \x20succeed ! echo -e \x20failed
+chainloader /NTLDR
+goto :boot
+
+::自动菜单及自动列表模块
+:aut
+if /i not "%m:~5,5%"=="omenu" if /i not "%m:~5,5%"=="olist" && goto :merror
+set /l autotype=%m:~6,4%
+shift
+::检测show或not-show参数
+set /u tmp=%~1
+call Fn.15 "%tmp:~,4%" "SHOW" && set tmp= ! set show=%tmp% && shift && set tmp=
+call Fn.15 "%in_check%" "1" && setlocal
+if /i "%m:~10,4%"=="-all" && goto :auto-all
+::若没有指定路径，则使用默认目录/BOOT/IMGS/
+if /i "%~1"=="subdir" && goto :subdir
+set tmp=%~1
+call Fn.15 "%tmp%" "" && call Fn.15 "%tmp:~,2%" "--" && rootnoverify %~d1 && set path=%~pnx1 && shift ! set path=%usrpath%
+set tmp=
+command %NTBOOT%.CMD/EMPPATH path="%path%" || echo -n
+call :find "%path%" dironly || goto :ferr
+:automenu_begin
+if "%autotype%"=="" && set autotype=menu
+::对自动列表，若没有提前定义过基础参数值，在此进行定义，对自动菜单，始终进行定义
+if "%autotype%"=="list" if "%listinit%"=="1" || call :init_autotype %@root%%%path%
+::获取上级文件夹路径
+call :up_check "%@root%%%path:~,-1%"
+::先处理文件夹，再处理文件
+call Fn.15 "%fastmode%" "1" && call Fn.15 "%showdir%" "0" && set type=LS\x20 && ls %path% | call :automake %0
+call Fn.15 "%showfile%" "0" && set type=RUN && ls %path% | call :automake %0
+call Fn.11 "%autotype%" "list" && goto :autolist_end
+::自动菜单结束模块，输出最后一项返回主菜单功能菜单，加载生成的自动菜单
+:automenu_end
+::检测内置菜单位置
+calc *0x307FFC-0x110000 > nul && set tmp=(md)4+8 ! set tmp=(md)0x880+0x200
+set tmp= && call Fn.15 "%backmenu%" "" && set menu=%backmenu% ! call Fn.15 "%menu%" "" || set menu=%tmp%
+call Fn.11 "%i:~1,1%" "0" && set title=%i:~-2% ! set title=%i:~-3%
+call Fn.15 "%showinfo%" "0" &; call Fn.11 "%language%" "en" && set tmp=Will load %menu% ! set tmp=将加载 %menu%
+call Fn.11 "%language%" "en" && echo -e \ntitle [%title%] Back to Main Menu \\n %tmp% >> (rd)+1
+call Fn.11 "%language%" "cn" && echo -e \ntitle [%title%] 返回主菜单 \\n %tmp% >> (rd)+1
+::echo -e delmod -l %runs% \> nul \|\| echo %runs% not found!! \&\& call Fn.73 3 >> (rd)+1
+echo -e command %runf% --as.lst %menu%  >> (rd)+1
+::set i=
+::set title=
+::set type=
+::两次endlocal，一次为:automenu[-all]段setlocal，另一次为:start段setlocal
+endlocal && set show=%show% && set showonot=%showonot% && call Fn.11 "%prinstall%" "1" && set dflag=%dflag% && set prinstall=%prinstall% && set nochoice=%nochoice% && set noisopar=%noisopar%
+endlocal && set show=%show% && set showonot=%showonot% && set dflag=%dflag% && set prinstall=%prinstall% && set nochoice=%nochoice% && set noisopar=%noisopar%
+configfile (rd)+1
+exit
+::自动列表结束模块，输出一些帮助信息，保存一些需要的参数值，跳转到输入模块
+:autolist_end
+if "%listnote%"=="" call Fn.11 "%language%" "en" && set listnote=Input command or the [%cn%NUM%c7%] to run, eg. "$[0104]b%c7%" back to $[0003]Menu %c7%or "$[0104]c%c7%" to $[0003]Commandline%c7%.
+if "%listnote%"=="" call Fn.11 "%language%" "cn" && set listnote=请输入命令或文件编号[%cn%NUM%c7%]执行（命令如: "$[0104]b%c7%"返回$[0003]菜单%c7%或输入"$[0104]c%c7%"进入$[0003]命令行%c7%）。
+echo -e \n\x20%c7%%%listnote%
+set page= && if %line%>=%linee% && set page=1 && if %lineb%>=%linem% && set page=2 ! if %lineb%>=%linem% && set page=3
+call Fn.15 "%page%" "" &; call Fn.11 "%language%" "en" && echo -e -n \x20%c7%Note: ! echo -e -n \x20%c7%提示:
+call Fn.15 "%page%" "" &; if %page%<=2 &; call Fn.11 "%language%" "en" && echo -e -n \x20Input "$[0104]+%c7%" to page $[0003]down%c7%. ! echo -e -n \x20输入"$[0104]+%c7%"可以$[0003]向下%c7%翻页。
+call Fn.15 "%page%" "" &; if %page%>=2 &; call Fn.11 "%language%" "en" && echo -e -n \x20Input "$[0104]-%c7%" to page $[0003]up%c7%. ! echo -e -n \x20输入"$[0104]-%c7%"可以$[0003]向上%c7%翻页。
+echo -e && call Fn.15 "%page%" "" && echo -e
+endlocal && set show=%show% && set showonot=%showonot% && set autotype=%autotype% && set /a i=%i:~-3%-1 > nul && set md=%md% && set line=%line% && set linem=%linem% && set lineb=%lineb% && set linee=%linee% && set dir_deep=%dir_deep% && call Fn.11 "%prinstall%" "1" && set dflag=%dflag% && set prinstall=%prinstall% && set nochoice=%nochoice% && set noisopar=%noisopar%
+call Fn.11 "%in_check%" "1" && exit ! goto :i
+exit
+
+:subdir
+shift
+set dir_deep=
+checkrange 1:-1 calc %~1 > nul && set dir_deep=%~1 ! set dir_deep=1
+shift
+set /u tmp=%~1
+call Fn.15 "%tmp:~,4%" "SHOW" && set tmp= ! set show=%tmp% && shift && set tmp=
+set tmp=%~1
+call Fn.15 "%tmp%" "" && call Fn.15 "%tmp:~,2%" "--" && rootnoverify %~d1 && set path=%~pnx1 && shift ! set path=/
+set tmp=
+::检测root
+command %NTBOOT%.CMD/EMPPATH path="%path%" || echo -n
+call :find "%path%" dironly || goto :ferr
+set dir_root=%loadroot%%%loadpath%
+call Fn.15 "%autotype%" "" || set autotype=menu
+call :init_autotype %dir_deep% %dir_root%
+:subdir_begin
+call :subdir_start %dir_root%
+call Fn.15 "%tmptitle%" "" && set tmptitle= && set /a line=%line%+1 > nul && if %line%>=%lineb% && echo -e %tmptitle%
+goto :auto%autotype%_end
+
+:subdir_all
+shift
+set dir_deep=
+checkrange 1:-1 calc %~1 > nul && set dir_deep=%~1 ! set dir_deep=1
+shift
+set /u tmp=%~1
+call Fn.15 "%tmp:~,6%" "SHOW" &&& set tmp= ! set show=%tmp% && shift && set tmp=
+set tmp=%~1
+call Fn.15 "%tmp%" "" && call Fn.15 "%tmp:~,2%" "--" && rootnoverify %~d1 && set path=%~pnx1 && shift ! set path=
+set tmp=
+::检测root
+call Fn.15 "%path%" "" && command %NTBOOT%.CMD/EMPPATH path="%path%" || echo -n
+call Fn.15 "%path%" "" && call :find "%path%" dironly || goto :ferr
+call Fn.15 "%autotype%" "" || set autotype=menu
+call :init_autotype %dir_deep% all\ devices %path%
+:subdir_all_begin
+set dir_root=
+debug 1
+call Fn.15 "%usrdev%" "" |; call Fn.15 "%fdd_boot%" "" && set usrdev=chpuf ! set usrdev=chpu
+command %NTBOOT%.CMD/RUNDEVICE %usrdev%
+set dir_root=%tmp%
+::find --devices=%usrdev% > (md)0x300+1
+if "%debug%"=="" set debug=off ;; debug %debug%
+::cat --locate=\x0A --replace=\x20 (md)0x300+1
+::(fd0)/(hd0)会与(ud)重复，忽略之
+::calc *0x82b8 > nul || set UD= ! set /A UD=*0x82b9&0xff > nul &; if %UD%>=0x80 && set UD=(hd%UD:~3%) ! set UD=(fd%UD:~2%)
+::call Fn.15 "%UD%" "" && cat --locatei="%UD%" --replace=\x20\x20\x20\x20\x20\x20 (md)0x300+1
+::cat (md)0x300+1 | set dir_root=
+call Fn.15 "%path%" "" && set tmp= && call :subdir_all_path %dir_root%
+call Fn.11 "%autotype%" "menu" && call Fn.15 "%showpath%" "" || set showpath=1
+goto :subdir_begin
+
+:subdir_all_path
+call Fn.15 "%~1" "" || set dir_root=%tmp% && set tmp= && exit
+root %~1 || shift && goto :subdir_all_path
+ls %path% > nul && set tmp=%tmp% %@root%%%path%
+shift
+goto :subdir_all_path
+
+:subdir_start
+if "%~1"=="" && exit
+call Fn.11 "%autotype%" "menu" && call Fn.11 "%i:~-3%" "254" && exit
+call Fn.11 "%autotype%" "list" && if %line%>=%linee% && exit
+call :joke %~1
+setlocal
+rootnoverify %~d1
+set path=%~pnx1
+call :path_check
+if exist %@root%%%path%MENU_CONFIG.TXT && set contxt=1 && cat %@root%%%path%MENU_CONFIG.TXT > (md)0x210+10 || echo > (md)0x210+10
+set type=RUN
+ls %path% > nul && ls %path% | call :automake %~0
+set /a dir_deep=%dir_deep%-1 > nul
+if %dir_deep%>=1 && ls %path% | call :subdir_dir %~0
+endlocal && set i=%i% && set tmpmd=%tmpmd% && set tmptitle=%tmptitle% && set line=%line% && set tmpitem=%tmpitem%
+shift
+goto :subdir_start
+
+:subdir_dir
+shift
+if "%~1"=="" && exit
+cat --length=0 %path%%%~1 > nul && goto :subdir_dir
+call Fn.61 %@root%%%path%%%~1/ > nul || goto :subdir_dir
+setlocal
+call :subdir_start %@root%%%path%%%~1/
+endlocal && set i=%i% && set tmpmd=%tmpmd% && set tmptitle=%tmptitle% && set line=%line% && set tmpitem=%tmpitem%
+goto :subdir_dir
+
+::定义自动菜单的一些基础参数值
+::call :init_autotype %@root%%%path%
+::call :init_autotype all devices
+::call :init_autotype all devices %path%
+::call :init_autotype %dir_deep% %dir_root%
+::call :init_autotype %dir_deep% all\ devices
+::call :init_autotype %dir_deep% all\ devices %path%
+:init_autotype
+::获取显示相关的一些参数值
+debug 1
+terminal | call :Resolution 
+if "%debug%"=="" set debug=off ;; debug %debug%
+set i=1001
+call Fn.15 "%fastmode%" "1" && if exist %@root%%%path%MENU_CONFIG.TXT && set contxt=1 && cat %@root%%%path%MENU_CONFIG.TXT > (md)0x210+10 || echo > (md)0x210+10
+call Fn.11 "%autotype%" "list" && goto :init_autolist
+::检测是否加载了背景图
+calc 46<<2+*0x8304 > nul
+call Fn.15 "%font%" "" || call Fn.15 "%image%" "" || read %@retval% > nul || set image=color white/blue blue/yellow light-red/blue 10
+::定义rd设备的起始地址及长度，64MB开始的128KB长度区域，(md)0x20000+0x100
+map --rd-base=0x4000000
+map --rd-size=0x20000
+::将标题居中显示
+set tmp=
+call Fn.15 "%dir_deep%" "%~1" &; call Fn.15 "%~1" "all" && set tmp=%~1 ! call Fn.15 "%language%" "en" && set tmp=所有可用设备 ! set tmp=all devices
+call Fn.15 "%tmp%" "" &; call Fn.15 "%~3" "" &; call Fn.15 "%language%" "en" && set tmp=%tmp%下 %~3 中文件 ! set tmp=files under %~3 in %tmp%
+call Fn.15 "%tmp%" "" |; call Fn.15 "%~2" "all\ devices" && set tmp=%~2\x20 ! call Fn.15 "%language%" "en" && set tmp=所有可用设备 ! set tmp=all devices
+call Fn.15 "%dir_deep%" "%~1" |; call Fn.15 "%~3" "" &; call Fn.15 "%language%" "en" && set tmp=%tmp%下 %~3\x20 ! set tmp=%~3 in %tmp%
+call Fn.15 "%dir_deep%" "%~1" |; call Fn.15 "%language%" "cn" && set tmp=files under %dir_deep%-level directory of %tmp% ! set tmp=%tmp%中 %dir_deep% 级目录下文件
+call Fn.15 "%language%" "cn" && set tmp=Automenu for %tmp% ! set tmp=自动菜单，当前: %tmp%
+::标题两边对齐
+call :str_length
+calc %reso% + 20 > nul
+if %n%<=%@retval% && calc %@retval% + %n% &; calc %@retval% / 2 > nul &; call :fr_check %@retval%
+echo > (rd)+1
+call Fn.11 "%grub4ver%" "0" && set initmenu=!BAT\necho -P:0000 $[0000]\t\t\t\t\t\t\t\t\t\0
+call Fn.15 "%initmenu%" "" && call Fn.0 0x4000000 "%initmenu%" && set initmenu=\nexit\n\ninitscript (rd)+1
+echo -e %initmenu%\ndebug off\ndefault 1\n%image%\n%font%\ntitle %tmp% \\n \n%runf% --automenu-all >> (rd)+1
+exit
+
+::定义自动列表的一些基础参数值
+:init_autolist
+call Fn.11 "%showback%" "1" &; calc 46<<2+*0x8304 > nul &; read %@retval% > nul && call Fn.70 3
+call Fn.15 "%drvtips%" "1" && call Fn.6 ! set drvtips=
+call Fn.15 "%listinit%" "1" && set md=0x20800
+set /A tmpmd=%md% + 1 > nul
+set /a tmpitem=%item% - 1 > nul
+set line=1
+call Fn.15 "%listinit%" "1" && set lineb=1 && set linee=%linem%
+set c4=$[0104]
+set c6=$[0106]
+set c2=$[0102]
+set c7=$[0107]
+set cn=$[0x06] && call Fn.15 "%num_c%" "" && set cn=%num_c%
+set cf2=$[0x09] && call Fn.15 "%dir_c%" "" && set cf2=%dir_c%
+set cf=$[0x02] && call Fn.15 "%file_c%" "" && set cf=%file_c%
+set tmp=
+call Fn.15 "%dir_deep%" "%~1" &; call Fn.15 "%~1" "all" && set tmp=%c6%%%~d1%c2%%%~pnx1%%c7% ! call Fn.15 "%language%" "en" && set tmp=%c6%所有可用设备%c7% ! set tmp=%c6%all devices%c7%
+call Fn.15 "%tmp%" "" &; call Fn.15 "%~3" "" &; call Fn.15 "%language%" "en" && set tmp=%tmp%下 %~3 中文件 ! set tmp=files under %~3 in %tmp%
+call Fn.15 "%tmp%" "" |; call Fn.15 "%~2" "all\ devices" && set tmp=%c6%%%~2%c7%\x20 ! call Fn.15 "%language%" "en" && set tmp=%c6%所有可用设备%c7% ! set tmp=%c6%all devices%c7%
+call Fn.15 "%dir_deep%" "%~1" |; call Fn.15 "%~3" "" &; call Fn.15 "%language%" "en" && set tmp=%tmp%下 %~3\x20 ! set tmp=%c6%%%~3 %c7%in %tmp%
+call Fn.15 "%dir_deep%" "%~1" || if "%language%"=="en" set tmp=files under %c2%%%dir_deep%-level %c7%directory of %tmp% || set tmp=%tmp%中 %c2%%%dir_deep% %c7%级目录下文件
+call Fn.11 "%language%" "en" && set tmp=Autolist %c7%for %tmp%\n ! set tmp=自动列表%c7%, 当前: %tmp%\n
+echo -e \n\x20%c4%%%tmp%
+call Fn.15 "%listinit%" "1" &; echo %* > (md)%md%+1
+exit
+
+::所有可识别设备的自动菜单及自动列表模块
+:auto-all
+::检索文件相关
+if /i "%~1"=="subdir" && goto :subdir_all
+set tmp=%~1
+call Fn.15 "%tmp%" "" && call Fn.15 "%tmp:~,2%" "--" && rootnoverify %~d1 && set path=%~pnx1 && shift ! set path=
+set tmp=
+call Fn.15 "%path%" "" && command %NTBOOT%.CMD/EMPPATH path="%path%" || echo -n
+call Fn.15 "%path%" "" && call :find "%path%" dironly || goto :ferr
+::定义一些基础参数值
+if "%autotype%"=="list" if "%listinit%"=="1" || call :init_autotype all devices %path%
+call Fn.15 "%path%" "" && goto :automake_all
+::逐项处理识别到的设备
+debug 1
+call Fn.15 "%usrdev%" "" |; call Fn.15 "%fdd_boot%" "" && set usrdev=chpuf ! set usrdev=chpu
+setlocal
+::(fd0)/(hd0)会与(ud)重复，忽略之
+::calc *0x82b8 > nul || set UD= ! set /A UD=*0x82b9&0xff > nul &; if %UD%>=0x80 && set UD=(hd%UD:~3%) ! set UD=(fd%UD:~2%)
+command %NTBOOT%.CMD/RUNDEVICE %usrdev%
+call :devices_menu %tmp%
+endlocal && set i=%i% && set tmpmd=%tmpmd% && set line=%line%
+if "%debug%"=="" set debug=off ;; debug %debug%
+goto :auto%autotype%_end
+:devices_menu
+::处理该设备的详细信息
+call Fn.11 "%autotype%" "list" && if %line%>=%linee% && exit
+if "%1"=="" && exit
+::if "%UD%"=="%~1" && shift && goto :devices_menu
+call :part_info %~1
+call :joke %~1
+::处理得到的结果，并分类进行输出
+call Fn.11 "%language%" "en" && set tmp=Automenu for %~d1/ ! set tmp=将自动生成 %~d1/ 菜单
+call Fn.11 "%showinfo%" "0" && set tmp=
+call Fn.11 "%autotype%" "menu" && echo -e \ntitle [%i:~-2%] %partinfo%\\n %tmp% >> (rd)+1
+::call Fn.11 "%autotype%" "menu" && echo -e delmod -l %runs% \> nul \|\| echo %runs% not found!! \&\& call Fn.73 3 >> (rd)+1
+call Fn.11 "%autotype%" "menu" && echo -e command %runf% --automenu %~d1 >> (rd)+1
+call Fn.11 "%autotype%" "list" && echo -e --autolist %~d1 > (md)%tmpmd%+1 && if %line%>=%lineb% && echo -e \t%c7%[%cn%%%i:~-2%%%c7%] %cf%%%partinfo%%%c7%\x20
+set partinfo=
+set /a i=%i%+1 > nul
+call Fn.15 "%tmpmd%" "" && set /A tmpmd=%tmpmd% + 1 > nul
+set /a line=%line%+1 > nul
+shift
+goto :devices_menu
+
+::自动菜单及自动列表处理模块
+:automake
+shift
+::条件判断部分
+::自动菜单最多显示255项title，超出的忽略
+call Fn.11 "%autotype%" "menu" && call Fn.11 "%i:~-3%" "254" && exit
+::自动列表显示行超出最大行后退出
+call Fn.11 "%autotype%" "list" && if %line%>=%linee% && exit
+::全部文件处理完成后，对自动列表检测是否还有未输出的显示
+call Fn.15 "%~1" "" || goto :automake_end
+::先处理文件夹，然后处理文件
+call Fn.15 "%fastmode%" "1" &; cat --length=0 %path%%%~1 > nul && if "%type%"=="LS\x20" goto :automake ! if "%type%"=="RUN" goto :automake
+::menu_config.txt文件、firadisk.img文件、winvblk.img文件、同名_config.txt文件固定忽略处理
+if /i not "%~1"=="menu_config.txt" if /i not "%~1"=="firadisk.img" if /i not "%~1"=="winvblk.img" if /i not "%~1"=="%~n0_config.txt" || goto :automake
+set tmp=%~n1
+::非8.3命名的文件、以$开头的文件忽略处理
+call Fn.15 "%tmp:~,1%" "$" && call Fn.15 "%tmp:~-2,1%" "~" && set tmp= ! set tmp= && goto :automake
+::根据show或not-show参数检测是否显示本文件
+call Fn.11 "%type%" "RUN" && call Fn.15 "%show%" "" && call :show_detect %show% %~x1 || goto :automake
+::判断前缀
+set tmp=
+call Fn.15 "%filepre%" "" &; set /u tmp=%~n1 && set /u filepre=%filepre% &; set tmp= && call Fn.11 "%tmp%" "%filepre%" || goto :automake
+call :joke %~1
+setlocal
+::检测指定的文件路径是否含有空格
+call Fn.15 "%fastmode%" "1" && call Fn.11 "%type%" "LS\x20" && call Fn.61 %path%%%~1/ > nul && command %NTBOOT%.CMD/RUNBLANK file="%path%%%~1/" ! command %NTBOOT%.CMD/RUNBLANK file="%path%%%~1"
+call Fn.11 "%i:~1,1%" "0" && set title=%i:~-2% ! set title=%i:~-3%
+call Fn.11 "%autotype%" "menu" && set title=title [%title%]
+::显示名，前置参数，后置参数处理
+call Fn.15 "%fastmode%" "1" && call Fn.11 "%type%" "RUN" && if exist %path%%%~n1_CONFIG.TXT > nul && call :read_txt %path%%%~n1_CONFIG.TXT
+call Fn.15 "%fastmode%" "1" && call Fn.11 "%type%" "RUN" && call Fn.11 "%contxt%" "1" && call :menu_config %~1
+call Fn.15 "%_title%" "" && set blankn=4 ! call Fn.11 "%autotype%" "menu" && set title=%title%\x20%type%
+call Fn.15 "%_title%" "" |; call Fn.11 "%showpath%" "1" && set _title=%@root%%%path%%%~1 ! set _title=%~1
+call Fn.11 "%file:~-1%" "/" && set _title=%_title%/
+call Fn.15 "%_front%" "" && set _front=\x20%_front%\x20 ! call Fn.15 "%front%" "" && set _front=\x20%front%\x20 ! set _front=\x20
+call Fn.15 "%_next%" "" && set _next=\x20%_next% ! call Fn.15 "%next%" && set _next=\x20%next%
+::自动菜单输出结果模块
+call Fn.11 "%autotype%" "list" && goto :makelist
+::对文件，计算文件名显示长度及文件体积
+call Fn.15 "%fastmode%" "1" && call Fn.15 "%showsize%" "0" && call Fn.11 "%type%" "RUN" && call :name_fix %_title%
+call Fn.15 "%showinfo%" "0" || set _title=%_title%\\n ! set _title=%_title%\\n %@root%%%file%
+echo -e \n%title% %_title% >> (rd)+1
+::echo -e delmod -l %runs% \> nul \|\| echo %runs% not found!! \&\& call Fn.73 3 >> (rd)+1
+echo -e command %runf%%%_front%%%@root%%%file%%%_next% >> (rd)+1
+endlocal && set /a i=%i%+1 > nul
+goto :automake
+
+:joke
+::显示当前处理的文件或设备名
+call Fn.15 "%autotype%" "menu" && exit
+call Fn.15 "%joke%" "" &; call Fn.5 %joke% && echo -e %~1\t\t && exit ! exit
+echo -e -n \x20\x1a
+call Fn.4
+set /A joke=%@retval% > nul
+set joke=0x%joke:~-2% %joke:~,-2%
+goto :joke
+
+::自动列表输出结果模块
+:makelist
+echo -e -n %_front%%%@root%%%file%%%_next% > (md)%tmpmd%+1
+::计算显示的文件名长度，以便对齐
+set tmp=[%title%] %_title%
+call :str_length
+set tmp=%_title%
+::tmpitem值为判断是否换行输出的标志
+if %n%>=24 && call :list_name_fix ! call Fn.15 "%tmpitem%" "0" && call :de_check 19
+::区别文件夹及文件显示的颜色
+call Fn.11 "%type%" "LS\x20" && set title=%c7%[%cn%%%title%%%c7%] %cf2%%%tmp% ! set title=%c7%[%cn%%%title%%%c7%] %cf%%%tmp%
+if "%tmptitle%"=="" && set title=\t%title%
+call Fn.11 "%tmpitem%" "0" || set tmptitle=%tmptitle%%%title% ! set tmpitem=%item% && set tmptitle= && set /a line=%line%+1 > nul && if %line%>=%lineb% && echo -e %tmptitle%%%title%
+endlocal && set /a i=%i%+1 > nul && set /A tmpmd=%tmpmd%+1 > nul && set tmptitle=%tmptitle% && set line=%line% && set /a tmpitem=%tmpitem%-1 > nul
+goto :automake
+
+:automake_end
+call Fn.15 "%autotype%" "list" && exit
+call Fn.15 "%type%" "RUN" && exit
+call Fn.15 "%dir_deep%" "" && exit
+call Fn.15 "%tmptitle%" "" && set tmptitle= && set /a line=%line%+1 > nul && if %line%>=%lineb% && echo -e %tmptitle%
+set joke=
+exit
+
+:automake_all
+call Fn.11 "%autotype%" "menu" && call Fn.15 "%showpath%" "" || set showpath=1
+debug 1
+call Fn.15 "%usrdev%" "" |; call Fn.15 "%fdd_boot%" "" && set usrdev=chpuf ! set usrdev=chpu
+::(fd0)/(hd0)会与(ud)重复，忽略之
+::calc *0x82b8 > nul || set UD= ! set /A UD=*0x82b9&0xff > nul &; if %UD%>=0x80 && set UD=(hd%UD:~3%) ! set UD=(fd%UD:~2%)
+command %NTBOOT%.CMD/RUNDEVICE %usrdev%
+call Fn.15 "%fastmode%" "1" && call Fn.15 "%showdir%" "0" && set type=LS\x20 && call :automake_all_getfile %0 %tmp% && rootnoverify %@root%
+call Fn.15 "%showfile%" "0" && set type=RUN && call :automake_all_getfile %0 %tmp% && rootnoverify %@root%
+::set UD=
+if "%debug%"=="" set debug=off ;; debug %debug%
+goto :auto%autotype%_end
+
+:automake_all_getfile
+shift
+call Fn.15 "%~1" "" || exit
+::if "%UD%"=="%~1" && goto :automake_all_getfile
+rootnoverify %~1 || exit
+ls %path% | call :automake %0 || goto :automake_all_getfile
+goto :automake_all_getfile
+
+::获取显示相关的一些参数值模块
+:Resolution
+if "%~3"=="" && set reso=57 ! set /a reso=%~3-23 > nul
+::获取 box_w 原值,宽度
+calc 29<<2+*0x8304 > nul
+calc *%@retval%+4 > nul
+read %@retval% | echo -n | echo -n | echo -n | set old=
+::值为0或空的话，是默认最大宽度，某些情况下直接使用会超出显示范围
+call Fn.15 "%old:~2,-6%" "" && call Fn.15 "%old:~2,-6%" "00" && if 0x%old:~2,-6%>=24 set /a box_w=0x%old:~2,-6% - 23 > nul
+call Fn.15 "%box_w%" "" && if %box_w%<=%reso% && set reso=%box_w%
+set old= && call Fn.11 "%autotype%" "menu" && exit
+if "%~5"=="" && set linem=30 ! set /a linem=%~5 > nul
+::获取 box_h 原值，行数
+calc 29<<2+*0x8304 > nul
+calc *%@retval%+8 > nul
+read %@retval% | echo -n | echo -n | echo -n | set old=
+call Fn.15 "%old:~2,-2%" "" && call Fn.15 "%old:~2,-2%" "00" && if 0x%old:~2,-2%<=%linem% set /a linem=0x%old:~2,-2% > nul
+set old= && if %linem%<=8 && set linem=1 ! set /a linem=%linem% - 10 > nul
+::每行最大显示数
+set /a item=%reso% + 15 > nul
+if %item%<=32 && set item=1 ! set /a item=%item% / 24 > nul
+exit
+
+::获取上级文件夹路径模块，调用方式 call :up_check %当前路径% ;处理结束后up值为上级目录
+:up_check
+set up=%~dp1
+call Fn.15 "%up%" "%~1/" || set up=--auto%autotype%-all
+::处理up及其值空格问题，方便后期处理
+call Fn.15 "%up%" "--auto%autotype%-all" && command %NTBOOT%.CMD/RUNBLANK up="%up%"
+::自动列表的话直接输出结果，自动菜单的话写入到rd设备
+call Fn.11 "%autotype%" "menu" && goto :up_check_menu
+call Fn.15 "%language%" "cn" && set tmp=..\t\t ! set tmp=返回上级目录
+set tmptitle=\t%c7%[%cn%%%i:~-2%%%c7%] %cf2%%%tmp%\t
+set tmp=
+echo -e %up% > (md)%tmpmd%+1
+set /a i=%i%+1 > nul
+set /A tmpmd=%tmpmd% + 1 > nul
+set /a tmpitem=%tmpitem% - 1 > nul
+exit
+:up_check_menu
+call Fn.15 "%up%" "--auto%autotype%-all" && set tmp=%up% ! call Fn.15 "%language%" "cn" && set tmp=all devices ! set tmp=所有可用设备
+call Fn.11 "%showinfo%" "0" && set tmp= ! call Fn.11 "%language%" "en" && set tmp=Back to automenu for %tmp% ! set tmp=将自动生成 %tmp% 菜单
+call Fn.15 "%language%" "cn" && set tmp=.. \\n %tmp% ! set tmp=返回上级目录 \\n %tmp%
+echo -e \ntitle [%i:~-2%] %tmp% >> (rd)+1
+set tmp=
+::echo -e delmod -l %runs% \> nul \|\| echo %runs% not found!! \&\& call Fn.73 3 >> (rd)+1
+echo -e command %runf% %up% >> (rd)+1
+set /a i=%i%+1 > nul
+exit
+
+::--swap-ext，--automenu-all，--autolist-all参数用，获取分区详细信息模块
+:part_info
+if "%~1"=="" && exit
+
+set tmp=%~1
+if "%tmp:~,1%"=="(" if "%tmp:~2,1%"=="d" if "%tmp:~-1%"==")" || shift && set tmp= && goto :part_info
+
+set tmp=
+::如为hdd分区，则计算分区体积
+call Fn.11 "%~1" "hd" && call :part_size %~1
+::后对齐用，hdd分区加体积最大长度为15
+set tmp=%~1\x20%tmp%
+call :de_check 16
+set partsize=%tmp%
+set tmp=
+set n=
+debug 1
+::获取分区文件类型及磁盘类型
+uuid %~1 | echo -n | echo -n | echo -n | call :file_info 
+set fsysinfo=%tmp%
+set tmp=
+set n=
+::获取分区激活信息
+call Fn.15 "%language%" "cn" && call Fn.15 "%tmp:~-13%" "Unknown type." && makeactive --status %~1 | call :active_info 
+call Fn.15 "%language%" "en" && call Fn.15 "%tmp:~-15%" "未知类型。" && makeactive --status %~1 | call :active_info 
+::swap-ext参数的话需直接输出结果，autolist-all参数不用
+set partinfo=%partsize%\x20%fsysinfo%\x20%tmp%
+set tmp=
+set partsize=
+set fsysinfo=
+call Fn.11 "%helpinfo%" "1" && echo -e %partinfo%
+if "%debug%"=="" set debug=off ;; debug %debug%
+shift
+goto :part_info
+
+::计算指定的分区的体积，并进行前对齐模块，调用方式 call :part_size 分区号
+:part_size
+set sectors=0
+set sectorc=0
+geometry %~1 | call :sector_size 
+::0x82b0值为该分区的扇区数量
+rootnoverify %~1 && call :get_size *0x82b0*%sectors% && rootnoverify %@root%
+set sectors=
+set sectorc=
+call :fr_check 7
+exit
+
+::获取hdd每扇区大小及扇区数量
+:sector_size
+echo -e %~7 > (md)0x300+1
+cat --locate=\x2F --replace=\x20 (md)0x300+1
+cat --length=%?% (md)0x300+1 | set sectorc=
+cat --skip=%?% (md)0x300+1 | set sectors=
+exit
+
+::获取指定的分区的文件类型及磁盘类型，并进行对齐
+:file_info
+call Fn.15 "%language%" "cn" && set tmp=Filesystem is ! set tmp=文件系统类型是
+call Fn.15 "%~5" "is" || set tmp=%tmp%\x20%~6 %~9\x2E ! call Fn.15 "%language%" "cn" && set tmp=%tmp%\x20Unknown type. ! set tmp=%tmp%\x20未知类型。
+call Fn.15 "%language%" "cn" && call :de_check 31 ! call :de_check 32
+exit
+
+::获取指定分区是否活动
+:active_info
+call Fn.11 "%~4" "active" || call Fn.11 "%~5" "active" || exit
+call Fn.15 "%language%" "cn" && set tmp=%~4 %~5 && exit
+call Fn.11 "%~4" "not" && set tmp=非
+set tmp=%tmp%活动。
+exit
+
+::后对齐模块，使用空格补齐tmp值至指定长度，调用方式 call :de_check 目标长度 ;处理结束后tmp值为原tmp值加补齐用空格
+::在变量a后面添加3个空格,要N个空格就Ns
+::call Fn.0 0 "%t%%3s" | set t=
+:de_check
+call Fn.12 "%tmp%" || exit
+call :str_length
+if %n%>=%~1 && exit
+calc %n% - %~1 > nul
+call Fn.0 0 "%tmp%%%%%@retval%s" | set tmp=
+exit
+
+::前对齐模块，使用空格补齐tmp值至指定长度，调用方式 call :fr_check 目标长度 ;处理结束后tmp值为原tmp值加补齐用空格
+::变量a值长度为3 想左对齐左边加2个空格的话 最后变量a总长度应该是5
+::call Fn.0 0 "%5s" "%t%"
+:fr_check
+call Fn.12 "%tmp%" || exit
+call :str_length
+if %n%>=%~1 && exit
+::中文字符串补齐
+if "%utf8n%"=="" && set utf8n=0
+calc %~1 - 1 + %utf8n% > nul
+call Fn.0 0 "%%%@retval%s" "%tmp%" | set tmp=\x20
+exit
+
+::文件后缀名和指定的后缀名判断模块，调用方式 call :show_detect 文件后缀名 后缀名列表 ;处理结束后正常退出为显示 强制退出为不显示
+:show_detect
+::call Fn.15 "%show:~2,3%" "NOT" && set tmp=&& ! set tmp=||
+call Fn.11 "%show%" "SHOW-EXCEPT" && set tmp=|| ! set tmp=&&
+call Fn.15 "%~2" "" |; set tmp= && call Fn.15 "%~x1" "." %tmp% exit 1 ! exit
+set /u tmp="%~2" %tmp%
+set tmp= && call Fn.11 "%~1" %tmp% exit ! exit 1
+exit
+
+::同名_config.txt文本文件导入参数模块，调用方式 call :read_txt 同名_config.txt文件路径
+:read_txt
+::简单的判断，空文件直接退出
+if "%~z1"=="0x0" && exit ! set txtfile=%~1 && set tsize=%~z1
+::\xD\xA为Windows中回车换行符，作为判断含有几行参数的标准之一
+cat --locatei=\xD\xA --number=3 %txtfile% | set enter=
+::enter值不为空的话，截取enter值的前两个字符为第一个回车的位置，重新给enter赋值，进行下面的处理，以下雷同
+call Fn.15 "%enter%" "" && set enter=%enter:~2% && set enter1=0x%enter:~,2%
+call Fn.15 "%enter%" "" && set enter=%enter:~2% && set enter2=0x%enter:~,2%
+call Fn.15 "%enter%" "" && set enter=%enter:~2% && set enter3=0x%enter:~,2%
+::如果enter1值为空的话，说明文件只有一行，文件长度即为第一参数的长度
+if "%enter1%"=="" && set /A length=%tsize% > nul ! set /A length=%enter1% > nul
+::截取指定的长度，作为第一参数值，赋给指定的变量
+set length= && call Fn.15 "%length%" "" && cat --length=%length% %txtfile% | set _title=
+::enter1值不为空的话，说明至少两行参数，如果enter2值为空的话，说明只有两行参数，文件体积减去第一参数长度即为第二参数长度，以下雷同
+call Fn.15 "%enter1%" "" && if "%enter2%"=="" set /A length=%tsize%-%enter1% > nul || set /A length=%enter2%-%enter1% > nul
+call Fn.15 "%enter1%" "" && set length= && call Fn.15 "%length%" "" && cat --skip=%enter1% --length=%length% %txtfile% | set _front=
+call Fn.15 "%enter2%" "" && if "%enter3%"=="" set /A length=%tsize%-%enter2% > nul || set /A length=%enter3%-%enter2% > nul
+call Fn.15 "%enter2%" "" && set length= && call Fn.15 "%length%" "" && cat --skip=%enter2% --length=%length% %txtfile% | set _next=
+exit
+
+::menu_config.txt文本文件导入参数模块，调用方式 call :menu_config 文件名
+:menu_config
+::loop值为递归判断用 因cat的locate参数不能超过16位，在此判断进行截断
+call Fn.15 "%tar_beg%" "" || setlocal && set tar_beg=0x0 && cat --locate=\xEF\xBB\xBF --length=3 (md)0x210+10 > nul && set tar_beg=0x3
+call Fn.15 "%target%" "" || set /u target=%~1 &; if %@retval%>=16 set tar=%target:~,16% || set tar=%target%
+::查找是否含有指定的文件名
+cat --skip=%tar_beg% --locatei=%tar% --number=1 (md)0x210+10 > nul || exit
+::%?%值为cat --locate的返回值，@为约定的参数结束符，以此来确定文件名的起始位置
+calc %?% > nul && cat --locatei="@" --length=%?% (md)0x210+10 > nul &; set /A tar_beg=%?%+0x3 > nul
+::查找第一个#，确定文件名的结束位置
+cat --skip=%tar_beg% --locatei="#" --number=1 (md)0x210+10 > nul || exit
+set tar_end=%?% && calc %?%-%tar_beg% > nul
+::获取文件名
+cat --skip=%tar_beg% --length=%@retval% (md)0x210+10 | set /u tmp=
+::将找到的文件名和目标文件名对比，相同的话就准备获取参数，不同的话继续对比
+call Fn.15 "%tmp%" "%target%" && set tar_beg=%tar_end% && goto :menu_config
+set skip=%tar_end%
+::获取整行参数的长度
+cat --skip=%skip% --locatei="@" --number=1 (md)0x210+10 > nul || exit
+call :menu_config_get %?% _title _front _next
+endlocal && set _title=%_title% && set _front=%_front% && set _next=%_next%
+exit
+:menu_config_get
+cat --skip=%skip% --locatei="#" --number=1 --length=%~1 (md)0x210+10 > nul || exit
+set /A skip=%?%+0x1 > nul
+if %skip%>=%~1 && exit
+cat --skip=%skip% --locatei="#" --number=1 --length=%~1 (md)0x210+10 > nul || exit
+calc %?%-%skip% > nul &; cat --skip=%skip% --length=%@retval% (md)0x210+10 | set %~2=
+shift 2
+call Fn.15 "%~2" "" && goto :menu_config_get
+exit
+
+:::blank_check
+::command %NTBOOT%.CMD/RUNBLANK %~1="%~2"
+::exit
+::call :blank_check 变量名 变量值
+::将变量值中的空格以\\\x20替换 以保证两次echo -e输出后达到指定效果 新的变量值将赋给指定的变量名
+::call Fn.15 "%~2" "" && shift && set tmp=%~2
+::if "%tmp:~-1%"==" " && set tmp=%tmp:~,-1% && goto :blank_check
+::echo -e -n %tmp% > (md)0x200+2
+::set tmp=
+::replace_blank
+::cat --locate=\x20 --number=1 (md)0x200+2 > nul || cat (md)0x200+2 | set %~0= && set tmp= && exit
+::cat --length=%?% (md)0x200+2 | set tmp=
+::calc %?% + 1 > nul
+::cat --skip=%@retval% (md)0x200+2 | set tmp=%tmp%\\\x20
+::echo %tmp% > (md)0x200+2
+::goto :replace_blank
+
+::自动菜单用，计算文件体积，并进行文件名对齐，调用方式 call :name_fix 显示名
+:name_fix
+::先计算文件体积，然后对体积进行对齐
+call :get_size *0x8290
+call :fr_check 7
+set size=%tmp%
+::获取显示名，需去掉 %* 在末尾自动添加的一个空格
+set tmp=%*
+set tmp=%tmp:~,-1%
+call :str_length
+::处理启用自动编号的情况，避免文件体积超出显示范围
+calc *0x8274&0xff > nul && set /a reso=%reso% - 2 > nul
+::处理存在 name_config.txt 或 menu_config.txt 导入过参数的情况
+call Fn.15 "%blankn%" "" && set /a reso=%reso% + %blankn% > nul
+::显示名未超过显示长度的情况
+if %n%<=%reso% && set /a length=%n% + %utf8n% > nul && goto :name_end
+::显示名超过长度，但无中文字符的情况
+call Fn.15 "%utf8n%" "0" || set length=%reso% && goto :name_end
+set loop=
+set length=
+set tmp=%reso%
+:name_utf8
+::先检测最后一位是否是中文字符标志，再检测倒数第二位是否是中文字符标志
+if "%loop%"=="" && set loop=1
+calc %tmp% - %loop% > nul
+cat --hex --skip=%@retval% --length=1 (md)0x200+1 > (md)0x201+4
+cat --skip=9 --locate=\x20E (md)0x201+4 > nul || if "%loop%"=="2" set loop= || set loop=2 && goto :name_utf8
+::若为中文字符标志，则调整获取值的长度
+set loop= && if "%loop%"=="1" && set /a tmp=%tmp% - 1 > nul ! if "%loop%"=="2" && set /a tmp=%tmp% + 1 > nul
+if "%length%"=="%tmp%" && goto :name_end
+if "%length%"=="" && set length=%tmp%
+cat --hex --length=%tmp% (md)0x200+1 > (md)0x201+4
+cat --skip=9 --locate=\x20E (md)0x201+4 > nul
+set /a n=%tmp% - %@retval% > nul
+::若显示长度没有超过最大宽度，则继续尝试
+if %n%<=%reso% && set /a tmp=%tmp% + %reso% - %n% > nul && set length=%tmp% && goto :name_utf8
+:name_end
+cat --length=%length% (md)0x200+1 | set tmp=
+call :de_check %reso%
+set _title=%tmp%\x20%size%
+exit
+
+::already exit tmp
+:str_length
+set n=
+set utf8n=
+call Fn.12 "%tmp%" || exit
+set n=%@retval% && set utf8n=0
+echo -e -n %tmp% > (md)0x200+1
+cat --hex (md)0x200+1 > (md)0x201+4
+cat --skip=9 --locate=\x20E (md)0x201+4 > nul || exit
+set /a n=%n% - %@retval% > nul && set utf8n=%@retval%
+exit
+
+::计算体积用，调用方式： call :get_size 体积获取方式（如%~z1或*0x82b0*512） ; 处理结束后tmp值为体积，n值为长度
+:get_size
+set tmp=
+::因某些情况下返回值只能获取32位结果，故特别处理
+debug 1
+calc %~1 > (md)0x300+1
+if "%debug%"=="" set debug=off ;; debug %debug%
+cat --skip=1 --locate=\x20 --replace=\x00 --number=1 (md)0x300+1
+cat (md)0x300+1 | set tmp=
+::计算体积级别
+set tmp=%tmp%  B && calc %tmp%>>10 > nul || exit
+set tmp=%@retval% KB && calc %@retval%>>10 > nul || exit
+set tmp=%@retval% MB && calc %@retval%>>10 > nul || exit
+set tmp=%@retval% GB && calc %@retval%>>10 > nul || exit
+set tmp=%@retval% TB
+exit
+
+::自动列表超长文件名对齐模块
+:list_name_fix
+call Fn.15 "%detn%" "" && set /a detn=%detn%+24 > nul ! set detn=43
+if %tmpitem%>=1 && set /a tmpitem=%tmpitem% - 1 > nul
+if %n%>=%detn% && goto :list_name_fix
+call Fn.15 "%tmpitem%" "0" && call :de_check %detn%
+exit
+
+:setn
+set NTBOOT=%~dpn1
+exit

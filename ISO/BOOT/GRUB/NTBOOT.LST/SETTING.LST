@@ -1,0 +1,71 @@
+﻿!BAT
+:: Формирование меню.
+::----------------------------------------------------------------------
+graphicsmode -1 320:800 100:1000 24:32
+color normal=0x1F highlight=0x0A helptext=0x1E heading=0x00 standard=0x0F border=0x0A
+()/BOOT/GRUB/BGAUTOCHANGE ()/BOOT/GRUB/BG/ > nul
+MENUSETTING n 3 0 n n 3 91 6
+call Fn.0 0x40000 "!BAT\necho -P:0000 $[0000]\t\t\t\t\t\t\t\t\t\0" && initscript (md)0x200+1
+font > nul
+font ()/BOOT/GRUB/UNIFONT.HEX
+write 0x8274 0x2001 > nul
+
+:: Пути к каталогам для поиска файлов с расширением ISO, VHD, VHDX, WIM, IMA, IMG, GZ, LZMA, BIN.
+::----------------------------------------------------------------------
+:: Используются , если не найден конфигурационный файл ALL$BOOT.INI (он должен лежать в корне любого диска).
+:: Слеш должен быть в начале и в конце пути каталога. Каталоги могут находится на любом диске. Поддерживаются подкаталоги с уровнем вложения _subdir.
+:: Важно! Указывать корень диска (например, set _iso=/) в качестве каталога для поиска образов с уровнем вложения более 2 плохая идея (получите зависание на каталогах /Windows/WinSxS/.../ или /Windows/System32/.../)!
+
+:: Примеры:
+:: set _iso=/super-puper iso/my iso/
+:: set _isoinst=/мои дистрибутивы винды/8.1 x64/
+:: set _vhd=/my_vhd/
+
+:: Путь к каталогу с ISO. 
+set _iso=/iso/
+:: Путь к каталогу с дистрибутивами Windows в виде ISO.
+set _isoinst=/iso/
+:: Путь к каталогу с VHD, VHDX, WIM.
+set _vhd=/vhd/
+:: Путь к каталогу с IMA, IMG, GZ, LZMA, BIN.
+set _img=/img/
+:: Поиск файлов ISO, VHD, VHDX, WIM, IMA, IMG, GZ, LZMA, BIN производится по подкаталогам _iso, _isoinst, _vhd, _img с уровнем вложения _subdir.
+set _subdir=2
+
+:: Другие параметры.
+::----------------------------------------------------------------------
+:: Путь к NTBOOT по умолчанию.
+()/BOOT/GRUB/NTBOOT EOF
+:: Путь к пользовательскому NTBOOT.
+::set NTBOOT=()/NTBOOT
+:: Не показывать версию grub4dos.
+set grub4ver=0
+:: Язык автоменю.
+set language=en
+:: Не показывать файлы в автоменю.
+::set showfile=0
+:: Не показывать подкаталоги в автоменю.
+::set showdir=0
+:: Не показывать путь к файлу в автоменю.
+::set showpath=0
+:: Путь для файлов по умолчанию.
+::set usrpath=
+:: Не показывать размер файлов.
+::set showsize=0
+:: Отладка
+::set debug=1
+::set listnote=
+::set showinfo=
+
+:: Загрузка переменных пользователя из внешнего файла ALL$BOOT.INI.
+::----------------------------------------------------------------------
+find --set-root --devices=chpu /ALL$BOOT.INI
+if exist ()/ALL$BOOT.INI call ()/ALL$BOOT.INI
+:: Принудительно задать _subdir, если пользователь не задал.
+if "%_subdir%"=="" set _subdir=1 
+if "%_subdir%"=="0" set _subdir=1
+find --set-root --devices=chpu /BOOT/GRUB/ALL$BOOT
+
+:: Возврат
+::----------------------------------------------------------------------
+goto :EOF

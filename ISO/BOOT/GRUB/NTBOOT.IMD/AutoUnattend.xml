@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8" ?> 
+ <unattend xmlns="urn:schemas-microsoft-com:unattend">
+
+<settings pass="windowsPE">
+
+<component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<RunSynchronous>
+<RunSynchronousCommand wcm:action="add">
+<Order>1</Order>
+<Path>cmd /q /c "FOR %i IN (C D E F G H I J K L N M O P Q R S T U V W X Y Z) DO IF EXIST %i:\grub\imdisk\MountISO.cmd cmd /k %i:\grub\imdisk\MountISO.cmd"</Path>
+<Description>Detecting usb drive</Description>
+</RunSynchronousCommand>
+</RunSynchronous>
+
+<UserData>
+<ProductKey>              
+	<!--<Key>xxxxxxxxxxxxxxxxxxxxxxxxxx</Key>-->                   
+	<WillShowUI>Never</WillShowUI>
+</ProductKey>
+<AcceptEula>true</AcceptEula>
+</UserData>
+
+</component>
+
+<component name="Microsoft-Windows-Setup" processorArchitecture="x86" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<RunSynchronous>
+<RunSynchronousCommand wcm:action="add">
+<Order>1</Order>
+<Path>cmd /q /c "FOR %i IN (C D E F G H I J K L N M O P Q R S T U V W X Y Z) DO IF EXIST %i:\grub\imdisk\MountISO.cmd cmd /k %i:\grub\imdisk\MountISO.cmd"</Path>
+<Description>Detecting usb drive</Description>
+</RunSynchronousCommand>
+</RunSynchronous>
+
+<UserData>
+<ProductKey>              
+	<!--<Key>xxxxxxxxxxxxxxxxxxxxxxxxxx</Key>-->                   
+	<WillShowUI>Never</WillShowUI>
+</ProductKey>
+<AcceptEula>true</AcceptEula>
+</UserData>
+
+</component>
+</settings>
+<cpi:offlineImage cpi:source="wim:f:/build8/win8x64/sources/install.wim#Windows 8 Pro" xmlns:cpi="urn:schemas-microsoft-com:cpi" />
+</unattend>
+
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           

@@ -1,0 +1,351 @@
+!BAT
+::dpms by chenall
+::command RUNDPMS "%srspath%"
+setlocal
+map --status=0 && call :unmap 0 || set srs_err=2.22 && goto :srs_end
+root %~dp1
+set inipath=
+call Fn.15 "%~nx1" "" && goto :%~x1 || set srs_err=2.24 && goto :srs_end
+
+:folder
+ls | call :ini_check %~0
+call Fn.15 "%inipath%" "" && goto :DPMS_START
+call :iso_check /DPMS.ISO /DPMS.LZMA /DPMS.GZ /DPMS-SRS.GZ /DPMS.ISO.GZ /DPMS.ISO.LZMA || set srs_err=2.26 && goto :srs_end
+goto :folder
+
+:.ini
+cat --length=0 /%~nx1 > nul || set srs_err=2.28 && goto :srs_end
+set inipath=%~nx1
+goto :DPMS_START
+
+:.gz
+:.iso
+:.lzma
+call :iso_check /%~nx1 || set srs_err=2.222 && goto :srs_end
+ls | call :ini_check %~0
+call Fn.15 "%inipath%" "" && goto :DPMS_START
+set srs_err=2.224
+goto :srs_end
+
+:ini_check
+shift
+if "%~1"=="" && exit
+if /i not "%~x1"==".ini" && goto :ini_check
+set tmp=%~n1
+set tmp= && if /i not "%tmp:~,10%"=="driverpack" && goto :ini_check
+set inipath=%@root%/%~1
+exit
+
+:iso_check
+if "%~1"=="" && exit 1
+cat --length=0 /%~nx1 > nul || shift && goto :iso_check
+map --status=223 && call :unmap 223 || exit 1
+map /%~nx1 (0xdf) > nul || map --mem /%~nx1 (0xdf) || shift && goto :iso_check
+map --rehook
+ls (0xdf)/ > nul || call :map_mem /%~nx1 (0xdf) || shift && goto :iso_check
+root (0xdf)
+exit
+
+:map_mem
+map --mem %~1 %~2 || exit 1
+map --rehook
+exit
+
+:unmap
+echo -e -n \n Trying to unmap fd%~1 ... 
+map --unmap=%~1
+map --rehook
+map --status=%~1 && echo failed && exit 1
+echo succeed
+exit
+
+:DPMS_START
+map --floppies=2
+map --mem (md)+5760 (8) || echo ERR: map --mem (md)+5760 (8)
+map --rehook
+::echo -n 膻 > (8)+40
+::write --offset=0xc (8) \2\2\1\0\2\xf0\0\x80\x16\xf0\x9\0\x24\0\2
+::write --offset=0x26 (8)+1 \x29DPMSchenall.netFAT12
+::write --offset=0x1fe (8)+2 \x55\xAA\xf0\xff\xff
+fat mkfs (8) > nul || echo ERR: fat mkfs (8)
+write --offset=0x18 (8) \x24\0\2
+::geometry --tune --sync (8) > nul
+fat mkfile size=4096 (8)/chkpci.pci || echo ERR: fat mkfile size=4096 (8)/chkpci.pci
+CHKPCI -u %inipath% > (8)/chkpci.pci
+echo [Disks] > (md)0x21C+10
+echo d1="DPMS Installation Disk by chenall(disk0)",\disk0,\  >> (md)0x21C+10
+::分析pci
+set pci.max=0
+set skip=0
+call :analysis
+if %pci.max%==0 && goto :NoDriver
+echo [chenall.net] >> (md)0x21C+10
+::cat --locate=\0 --replace=#*chenall.net*** (md)0x300+1
+cat --locate=\0 --replace=#*chenall.net*** --number=3 (md)0x21C+10
+echo -e -n \r\n[Defaults]\r\nscsi=$$ >> (md)0x21C+10
+::call Func strstr,从内存地址0x43800处查找"$$",把位置记录下来设为变量scsi
+call Fn.11 0x43800 "$$"
+set scsi=%@retval%
+call Fn.15 "%debug%" "off" && echo scsi="%scsi%"
+::cat --locate=\0 --number=1 (md)0x21C+10 | set scsi=
+::call :fd_%1 %1
+call :fd_0 0
+::call Func sleep 3 Sec
+set srs_err=0
+:srs_end
+map --unmap=8,0xdf
+map --rehook
+::call Fn.73 3
+endlocal && set srs_err=%srs_err%
+exit
+
+:fd_0
+:fd_1
+call Fn.15 "%debug%" "off" && echo scsi="%scsi%"
+set def=1
+if %pci.max%==1 || call :def_choose
+call :def_set %def% %1
+exit
+:fd_
+:fd_2
+call :def_set 1 1
+if %pci.max%==1 && goto :BLANK_FD0
+call :def_set 2 0
+exit
+
+:def_choose
+echo -e \n    Please select a default driver (1-%pci.max%):\r
+pause --wait=9
+if %@retval%==1 && set def=1 ! set /a def=%@retval%-48
+checkrange 1:%pci.max% calc %def% || goto %0
+echo -e \t%def%
+exit
+
+:analysis
+cat --locate=\n --skip=%skip% --number=1 (8)/chkpci.pci > nul || exit
+set /a len=%?%-%skip%
+cat --skip=%skip% --length=%len% (8)/chkpci.pci | call :chkpci=
+set /a skip=%skip%+1+%len%
+goto :analysis
+
+:NoDriver
+set srs_err=3
+goto :srs_end
+
+:::以下代码暂时未使用
+:check_inf
+shift
+if "%~0"=="" exit
+if /i "%~x0"==".inf" || goto :check_inf
+cat --locate=%id% --number=1 /%0 > nul || goto :check_inf
+inifile /%0 [SourceDisksFiles] | call :copyfiles= || inifile /%0  [SourceDisksFiles.x86] | call :copyfiles= 
+inifile /%0 [Version] CatalogFile | call :copyfiles %0=
+exit
+:copyfiles
+if "%~1"=="" exit
+shift
+if "%~x0"=="" && goto :copyfiles
+set /u filename=/%0
+call :%~x0 %0 && if not exist (8)/%0 && fat copy %filename% (8) || echo ERR: fat copy %filename% (8)
+goto :copyfiles
+
+:.inf
+echo inf=d1,%1 >> (md)0x21C+10
+exit
+:.cat
+echo catalog=d1,%1 >> (md)0x21C+10
+exit
+:.dll
+echo dll=d1,%1 >> (md)0x21C+10
+exit
+:::以上代码暂时未使用
+
+:chkpci
+setlocal
+if not "%3"==";" && exit
+::chkpci获取的路径有问题(新版DPMS驱动路径规则有变),2014-06-08 by 527104427、sratlf
+call :root_path "%~1"
+if "%root%"=="" && set /u root=%~4
+root %@root%/%root%
+call Fn.11 "%dpmsver%" "chenall" && goto :chkpci-1
+cat --length=0 /txtsetup.oem > nul || goto :chkpci-1
+if exist (8)/oem && fat del (8)/oem || echo ERR: fat del (8)/oem
+fat copy /txtsetup.oem (8)/oem || goto :chkpci-1
+::读取SCSI为变量hardids
+set tmp=%~1
+set tmp= && cat --locatei=%tmp:~-16% --number=1 (8)/oem > nul || goto :chkpci-1
+cat --length=%?% --locate=[ (8)/oem > nul || goto :chkpci-1
+set /a first=%?% + 1 > nul
+cat --skip=%first% --locate=] --number=1 (8)/oem > nul
+calc %?% - %first% > nul
+cat --skip=%first% --length=%@retval% (8)/oem | set hardids=
+set hardids=%hardids:~17%
+::读取value
+inifile (8)/oem [files.scsi.%hardids%] driver > (md)0x200+1
+cat --locate=, --replace=\x20 (md)0x200+1
+cat (md)0x200+1 | call :val=
+set sysfile=%val2%
+set value=%val3%
+echo [scsi] >> (md)0x21C+10
+echo %hardids%=%6 >> (md)0x21C+10
+echo [files.scsi.%hardids%] >> (md)0x21C+10
+::复制相关的文件
+inifile (8)/oem [files.scsi.%hardids%] > (md)0x200+2
+cat --locate=\x0d\x0a --replace=\x20, (md)0x200+2
+set /a p_hwid=0x40000
+call Fn.13 %p_hwid% ","
+call Fn.0 0 %p_hwid% > nul
+:addfile_next
+call Fn.13 0 "," > nul || goto :files
+call Fn.0 0 %@retval% | call :copy=
+goto :addfile_next
+:files
+inifile (8)/oem [HardwareIds.scsi.%hardids%] id > (md)0x200+1
+cat --locate=, --replace=\x20 (md)0x200+1
+cat (md)0x200+1 | call :val=
+set val=%val2%
+echo [HardwareIds.scsi.%hardids%] >> (md)0x21C+10
+echo -n %~1 > (md)0x200+2
+set /a p_hwid=0x40000
+call :addids %val%
+if exist value && echo [Config.%value%] >> (md)0x21C+10 &; inifile (8)/oem [Config.%value%] >> (md)0x21C+10
+endlocal && set /a pci.max=%pci.max%+1 && set hardids=%hardids% && set val=%val% && set sysfile=%sysfile% && set root=%root%
+echo $[0105]    PCI.%pci.max%  $[0107]%1=$[0106]"%val%" $[0107]%3 $[0105]%root% $[0107]"%sysfile%" %6
+set pci.%pci.max%=%hardids%
+set hardids=
+set val=
+set sysfile=
+fat del (8)/oem || exit
+exit
+
+
+:chkpci-1
+set /u sysfile=/%~5
+if not exist (8)%sysfile% && fat copy %sysfile% (8) || echo ERR: fat copy %sysfile% (8)
+echo [scsi] >> (md)0x21C+10
+echo %~2=%6 >> (md)0x21C+10
+::if exist (8)/txtsetup.oem && exit
+echo [HardwareIds.scsi.%~2] >> (md)0x21C+10
+echo -n %~1 > (md)0x200+2
+set /a p_hwid=0x40000
+call :addids %~n5
+echo [Files.scsi.%~2] >> (md)0x21C+10
+echo driver=d1,%~5,%~2 >> (md)0x21C+10
+if "%noisopar%"=="1" && goto :chkpci_winpe
+set /u filename=%~n5.inf
+if exist /%filename% && call :check_inf %filename% ! ls | call :check_inf=
+:chkpci_winpe
+endlocal && set /a pci.max=%pci.max%+1 && set root=%root%
+echo && echo $[0105] PCI.%pci.max%  $[0107]%1=$[0106]%2 $[0107]%3 $[0105]%root% $[0107]%5 %6
+set pci.%pci.max%=%~2
+exit
+
+:addids
+::call func strok
+call Fn.13 %p_hwid% ","
+call Fn.0 0 "id="%s","%1"" %p_hwid% | echo >> (md)0x21C+10
+call Fn.0 0 %p_hwid% | set id=
+set id=%id:~4,16%
+:addins_next
+call Fn.13 0 "," || exit
+call Fn.0 0 "id="%s","%1"" %@retval% | echo >> (md)0x21C+10
+goto :addins_next
+
+:BLANK_FD0
+echo -n 膻 > (md)0x200+2
+write --offset=0xb (md)0x200+3 \x00\x02\x01\x01\x00\x01\x70\x00\x10\x00\xfd\x01\x00\x08\x00\x01
+write 0x401FE 0xAA55
+write 0x40200 0xfffffe
+map --mem (md)0x200+2 (fd0) || echo ERR: map --mem (md)0x200+2 (fd0)
+exit
+
+:def_set
+call Fn.15 "%debug%" "off" && echo scsi="%scsi%"
+if not exist pci.%1 && exit
+map --mem (8)+1 (%2) || echo ERR: map --mem (8)+1 (%2)
+map --rehook
+echo $[0105] (fd%2)  $[0107]defaults = $[0106]%pci.%1%
+::write --offset=0x%scsi% (md)0x21C+10 %pci.%1%\r\n\0
+::cat --locate=\0 --number=1 (md)0x21C+10 | set x=
+::fat copy /o (md)0x21C+10,%?% (%2)/txtsetup.oem
+::直接使用函数的方法速度比较快
+::call func sprintf(scsi,"%pci.%1%")
+::call Fn.0 %scsi% "%pci.%1%\r\n"
+if "%scsi%"=="0" calc 0x43800 + 0x1400 || call Fn.0 %scsi% "%pci.%1%\r\n"
+calc %scsi%+%@retval%-0x43800
+::call Func strlen
+::call Fn.12 0x60000
+fat copy /o (md)0x21C+10,%@retval% (%2)/txtsetup.oem || echo ERR: fat copy /o (md)0x21C+10,%@retval% (%2)/txtsetup.oem
+fat mkfile (%2)/disk%2 || echo ERR: fat mkfile (%2)/disk%2
+write --offset=0x33 (%2)/txtsetup.oem %2
+write --offset=0x3c (%2)/txtsetup.oem %2
+exit
+
+:copy
+if "%~x1"=="" exit
+if exist /%~nx1 && fat copy /o /%~nx1 (8) || echo ERR: fat copy /o /%~nx1 (8)
+goto :copy%~x1 || exit
+
+:copy.sys
+if exist /%~n1.sy_ && fat copy /o /%~n1.sy_ (8) || echo ERR: fat copy /o /%~n1.sy_ (8)
+echo driver=d1,%~nx1,%value% >> (md)0x21C+10
+exit
+:copy.inf
+echo inf=d1,%~nx1 >> (md)0x21C+10
+exit
+:copy.cat
+echo catalog=d1,%~nx1 >> (md)0x21C+10
+exit
+
+:val
+set val2=%~2
+set val3=%~3
+exit
+
+:root_path
+set root=
+if "%~1"=="" && exit
+set /u tmp=%~1
+cat --locatei="%tmp:~-16%" %inipath% | call :hwid_check %tmp% %@retval%
+if "%tmp%"=="" && exit
+if %tmp%<=1024 && calc %tmp% > nul ! calc 1024 > nul
+call :get_char %tmp% %@retval% "xA[" || exit
+::tmp值为最近[位置
+set /a tmp=%?% + 2 > nul
+cat --skip=%tmp% --locate="]" --number=1 %inipath% > nul || exit
+calc %?% - %tmp% > nul
+cat --skip=%tmp% --length=%@retval% %inipath% > (md)0x200+1
+cat --locate=\x2D --replace=\x2F (md)0x200+1 > nul
+cat (md)0x200+1 | set /u root=D/M/
+set tmp=
+exit
+
+::tmp值为匹配ID位置
+:hwid_check
+set tmp=
+if "%~3"=="" && exit
+::不以 ms_ 开头则继续搜索
+set tmp=0x%~3
+if %tmp%<=512 && calc %tmp% > nul ! calc 512 > nul
+call :get_char %tmp% %@retval% "xA" || set ?=-1
+calc %?% + 1 > nul
+cat --skip=%@retval% --length=3 %inipath% | set tmp=
+call Fn.15 "%tmp%" "ms_" && shift 3 && goto :hwid_check
+::不以 , 或 " 结尾则继续搜索
+calc 0x%~3 + 16 > nul
+cat --skip=%@retval% --length=1 %inipath% | set tmp=
+::加引号比较字符串大小会转为ascii码再比较
+if "%tmp%">="0x22" if "%tmp%"<="0x22" || if "%tmp%"=="," || shift 3 && goto :hwid_check
+calc 0x%~3 - %~2 + 16 > nul
+cat --skip=%@retval% --length=%~2 %inipath% | set /u tmp=
+call Fn.15 "%~1" "%tmp%" && shift 3 && goto :hwid_check
+set /a tmp=0x%~3 - %~2 + 16 > nul
+exit
+
+:get_char
+::%tmp%起始位置 %~2每段范围 %~3要查找的字符
+if %tmp%<=%~2 && set tmp=0 && calc %~1 > nul ! set /a tmp=%tmp% - %~2 > nul && calc %~2 > nul
+cat --skip=%tmp% --length=%@retval% --locate="\%~3" %inipath% > nul && exit
+::比较数值大小不能加双引号,否则出错
+if %tmp%<=0 && set tmp= && exit 1
+goto :get_char

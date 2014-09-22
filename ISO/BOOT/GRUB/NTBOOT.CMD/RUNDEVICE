@@ -1,0 +1,23 @@
+!BAT
+cat (11)/EMPTY | root= > nul || echo -n
+root () > nul || echo -n
+set tmp=
+set tmp2=
+set tmp3=%~1
+find --devices=%~1 | call :Partition
+set tmp2=
+set tmp3=
+exit
+
+:Partition
+if "%~1"=="" && goto :next
+if "%~1"=="%@root%" && set tmp2=1
+set tmp=%tmp% %~1
+shift 1
+goto :Partition
+
+:next
+if exist tmp2 && exit
+if /i "%tmp3%"=="h" &; if /i "%@root:~,2%"=="(h" || exit
+set tmp=%@root% %tmp%
+exit

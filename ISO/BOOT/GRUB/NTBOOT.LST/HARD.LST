@@ -1,0 +1,53 @@
+﻿clear
+write 0x8274 0x2001 > nul
+call ()/BOOT/GRUB/BGAUTOCHANGE ()/BOOT/GRUB/BG/ > nul
+
+iftitle [checkrange 1:-1 calc *0x475 & 0xFF] Загрузка HD0\nЗагрузка HD0.
+	chainloader (hd0)+1
+	rootnoverify (hd0)
+	
+iftitle [checkrange 2:-1 calc *0x475 & 0xFF] Загрузка HD1\nСделать диск HD1 приоритетным и загрузить его.
+	map (hd0) (hd1)
+	map (hd1) (hd0)
+	map --rehook
+	chainloader (hd0)+1
+	rootnoverify (hd0)
+
+iftitle [checkrange 3:-1 calc *0x475 & 0xFF] Загрузка HD2\nСделать диск HD2 приоритетным и загрузить его.
+	map (hd0) (hd2)
+	map (hd2) (hd0)
+	map --rehook
+	chainloader (hd0)+1
+	rootnoverify (hd0)
+
+iftitle [checkrange 4:-1 calc *0x475 & 0xFF] Загрузка HD3\nСделать диск HD3 приоритетным и загрузить его.
+	map (hd0) (hd3)
+	map (hd3) (hd0)
+	map --rehook
+	chainloader (hd0)+1
+	rootnoverify (hd0)
+
+iftitle [checkrange 5:-1 calc *0x475 & 0xFF] Загрузка HD4\nСделать диск HD4 приоритетным и загрузить его.
+	map (hd0) (hd4)
+	map (hd4) (hd0)
+	map --rehook
+	chainloader (hd0)+1
+	rootnoverify (hd0)
+
+iftitle [checkrange 6:-1 calc *0x475 & 0xFF] Загрузка HD5\nСделать диск HD5 приоритетным и загрузить его.
+	map (hd0) (hd5)
+	map (hd5) (hd0)
+	map --rehook
+	chainloader (hd0)+1
+	rootnoverify (hd0)
+
+iftitle [checkrange 7:-1 calc *0x475 & 0xFF] Загрузка HD6\nСделать диск HD6 приоритетным и загрузить его.
+	map (hd0) (hd6)
+	map (hd6) (hd0)
+	map --rehook
+	chainloader (hd0)+1
+	rootnoverify (hd0)
+
+title Возврат в главное меню \nВозврат в главное меню
+	write 0x307ff8 1 > nul
+	configfile

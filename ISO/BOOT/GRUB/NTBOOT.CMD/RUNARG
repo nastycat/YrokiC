@@ -1,0 +1,31 @@
+﻿!BAT
+echo -e \x21BAT > (md)0x28100+28
+echo -e set debug=%debug% >> (md)0x28100+28
+echo -e set NTBOOT=%NTBOOT% >> (md)0x28100+28
+echo -e set slient=%slient% >> (md)0x28100+28
+echo -e set language=%language% >> (md)0x28100+28
+echo -e set usrpath=%usrpath% >> (md)0x28100+28
+echo -e set defaultc=%defaultc% >> (md)0x28100+28
+echo -e set ignorerr=%ignorerr% >> (md)0x28100+28
+echo -e set fd2hd=%fd2hd% >> (md)0x28100+28
+echo -e set gzdetect=%gzdetect% >> (md)0x28100+28
+echo -e set updateud=%updateud% >> (md)0x28100+28
+echo -e set srsmode=%srsmode% >> (md)0x28100+28
+echo -e set dpmsver=%dpmsver% >> (md)0x28100+28
+echo -e set firamode=%firamode% >> (md)0x28100+28
+echo -e set exchange=%exchange% >> (md)0x28100+28
+echo -e set listnote=%listnote% >> (md)0x28100+28
+echo -e set filepre=%filepre% >> (md)0x28100+28
+echo -e set fastmode=%fastmode% >> (md)0x28100+28
+echo -e set showfile=%showfile% >> (md)0x28100+28
+echo -e set showdir=%showdir% >> (md)0x28100+28
+echo -e set showpath=%showpath% >> (md)0x28100+28
+echo -e set num_c=%num_c% >> (md)0x28100+28
+echo -e set file_c=%file_c% >> (md)0x28100+28
+echo -e set dir_c=%dir_c% >> (md)0x28100+28
+echo -e set showback=%showback% >> (md)0x28100+28
+echo -e set grub4ver=%grub4ver% >> (md)0x28100+28
+echo -e set showinfo=%showinfo% >> (md)0x28100+28
+echo -e set showsize=%showsize% >> (md)0x28100+28
+echo -e set forcend=%forcend% >> (md)0x28100+28
+exit
